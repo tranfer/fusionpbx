@@ -17,7 +17,7 @@
 
 	The Initial Developer of the Original Code is
 	Mark J Crane <markjcrane@fusionpbx.com>
-	Portions created by the Initial Developer are Copyright (C) 2008-2019
+	Portions created by the Initial Developer are Copyright (C) 2008-2026
 	the Initial Developer. All Rights Reserved.
 
 	Contributor(s):
@@ -27,11 +27,19 @@
 //process this only one time
 	if ($domains_processed == 1) {
 
-		//default settings - change the type from var to text
+		//default settings - change the type from var or name to text
 			$sql = "update v_default_settings ";
 			$sql .= "set default_setting_name = 'text' ";
-			$sql .= "where default_setting_name = 'var' ";
-			$database = new database;
+			$sql .= "where (default_setting_name = 'var' or default_setting_name = 'name') ";
+			$database->execute($sql, null);
+			unset($sql);
+
+		//default settings - change the type from enhanced to default
+			$sql = "update v_default_settings ";
+			$sql .= "set default_setting_value = 'default' ";
+			$sql .= "where default_setting_category = 'domain' ";
+			$sql .= "and default_setting_subcategory = 'template' ";
+			$sql .= "and default_setting_value = 'enhanced' ";
 			$database->execute($sql, null);
 			unset($sql);
 
@@ -39,13 +47,11 @@
 			$sql = "delete from v_default_settings ";
 			$sql .= "where (default_setting_category is null and default_setting_subcategory is null) ";
 			$sql .= "or (default_setting_category = '' and default_setting_subcategory = '') ";
-			$database = new database;
 			$database->execute($sql, null);
 			unset($sql);
 
 		//populate the languages table, if necessary
 			$sql = "select count(*) from v_languages";
-			$database = new database;
 			$num_rows = $database->select($sql, null, 'column');
 			if ($num_rows == 0) {
 				$sql = "insert into v_languages (language_uuid, language, code) values ";
@@ -114,6 +120,7 @@
 				$sql .= "('".uuid()."', 'FYRO Macedonia', 'mk'), ";
 				$sql .= "('".uuid()."', 'Gaelic - Ireland', 'gd-ie'), ";
 				$sql .= "('".uuid()."', 'Gaelic - Scotland', 'gd'), ";
+				$sql .= "('".uuid()."', 'Georgian', 'ka-ge'), ";
 				$sql .= "('".uuid()."', 'German - Austria', 'de-at'), ";
 				$sql .= "('".uuid()."', 'German - Germany', 'de-de'), ";
 				$sql .= "('".uuid()."', 'German - Liechtenstein', 'de-li'), ";
@@ -205,14 +212,12 @@
 				$sql .= "('".uuid()."', 'Welsh', 'cy'), ";
 				$sql .= "('".uuid()."', 'Xhosa', 'xh'), ";
 				$sql .= "('".uuid()."', 'Yiddish', 'yi') ";
-				$database = new database;
 				$database->execute($sql, null);
 				unset($sql, $parameters);
 			}
 
 		//populate the countries table, if necessary
 			$sql = "select count(*) from v_countries";
-			$database = new database;
 			$num_rows = $database->select($sql, null, 'column');
 			if ($num_rows == 0) {
 				$sql = "insert into v_countries (country_uuid, country, iso_a2, iso_a3, num, country_code) values ";
@@ -482,7 +487,6 @@
 				$sql .= "and default_setting_category = 'domain' ";
 				$parameters['language_code'] = $language_code;
 				$parameters['legacy_code'] = $legacy_code;
-				$database = new database;
 				$database->execute($sql, $parameters);
 				unset($sql, $parameters);
 			}
@@ -498,7 +502,41 @@
 			$sql .= "and default_setting_category = 'domain' ";
 			$sql .= "and default_setting_subcategory = 'time_zone' ";
 			$sql .= "and default_setting_name = 'name' ";
-			$database = new database;
+			$database->execute($sql);
+			unset($sql);
+
+		//update login destination
+			$sql = "update v_default_settings set ";
+			$sql .= "default_setting_uuid = 'e2b9406f-37cf-4226-8111-e5d11d0bfd73', ";
+			$sql .= "default_setting_name = 'text' ";
+			$sql .= "where default_setting_category = 'login' ";
+			$sql .= "and default_setting_subcategory = 'destination' ";
+			$sql .= "and default_setting_name = 'url' ";
+			$database->execute($sql);
+			unset($sql);
+
+		//update editor settings used in javascript need to be a string
+			$sql = "update v_default_settings ";
+			$sql .= "set default_setting_name = 'text' ";
+			$sql .= "where default_setting_category = 'editor' ";
+			$sql .= "and default_setting_subcategory in ('invisibles', 'indent_guides', 'line_numbers') ";
+			$sql .= "and default_setting_name = 'boolean' ";
+			$database->execute($sql);
+			unset($sql);
+
+		// Delete setting_value_input_type
+			$sql = "delete from v_default_settings ";
+			$sql .= "where default_setting_category = 'domain' ";
+			$sql .= "and default_setting_subcategory = 'setting_value_input_type' ";
+			$database->execute($sql);
+			unset($sql);
+
+		//default settings - change from passkey_position to options_position
+			$sql = "update v_default_settings ";
+			$sql .= "set default_setting_subcategory = 'options_position', ";
+			$sql .= "default_setting_description = 'Position of the extra options on the login form. Options: inside, outside.' ";
+			$sql .= "where default_setting_uuid = 'c3d4e5f6-7a8b-4c9d-a0b1-2c3d4e5f6a7b' ";
+			$sql .= "and default_setting_category = 'login' ";
 			$database->execute($sql);
 			unset($sql);
 

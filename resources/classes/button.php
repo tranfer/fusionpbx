@@ -25,111 +25,172 @@
 	Mark J Crane <markjcrane@fusionpbx.com>
 */
 
-if (!class_exists('button')) {
-	class button {
+class button {
 
-		public static $collapse = 'hide-md-dn';
+	public static $collapse = 'hide-md-dn';
 
-		static function create($array) {
-			$button_icons = $_SESSION['theme']['button_icons']['text'] != '' ? $_SESSION['theme']['button_icons']['text'] : 'auto';
-			//parse styles into array
-				if ($array['style']) {
-					$tmp = explode(';',$array['style']);
-					foreach ($tmp as $style) {
-						if ($style) {
-							$style = explode(':', $style);
-							$styles[trim($style[0])] = trim($style[1]);
-						}
-					}
-					$array['style'] = $styles;
-					unset($styles);
-				}
-			//button: open
-				$button = "<button ";
-				$button .= "type='".($array['type'] ? $array['type'] : 'button')."' ";
-				$button .= $array['name'] ? "name=".self::quote($array['name'])." " : null;
-				$button .= $array['value'] ? "value=".self::quote($array['value'])." " : null;
-				$button .= $array['id'] ? "id='".$array['id']."' " : null;
-				$button .= $array['label'] ? "alt=".self::quote($array['label'])." " : ($array['title'] ? "alt=".self::quote($array['title'])." " : null);
-				if ($button_icons == 'only' || $button_icons == 'auto' || $array['title']) {
-					if ($array['title'] || $array['label']) {
-						$button .= "title=".($array['title'] ? self::quote($array['title']) : self::quote($array['label']))." ";
+	/**
+	 * Creates a button element based on the provided array of attributes.
+	 *
+	 * @param array $array An array containing button attributes, such as type, name, value, id, label, title, onclick,
+	 *                     etc.
+	 *
+	 * @return string The created button element as a string.
+	 */
+	public static function create($array) {
+		global $settings;
+
+		$button_icons = $settings->get('theme', 'button_icons', 'auto');
+		//parse styles into array
+		if (!empty($array['style'])) {
+			$tmp = explode(';', $array['style']);
+			foreach ($tmp as $style) {
+				if (!empty($style)) {
+					$style = explode(':', $style);
+					if (is_array($style) && @sizeof($style) == 2) {
+						$styles[trim($style[0])] = trim($style[1]);
 					}
 				}
-				$button .= $array['onclick'] ? "onclick=".self::quote($array['onclick'])." " : null;
-				$button .= $array['onmouseover'] ? "onmouseenter=".self::quote($array['onmouseover'])." " : null;
- 				$button .= $array['onmouseout'] ? "onmouseleave=".self::quote($array['onmouseout'])." " : null;
-				//detect class addition (using + prefix)
-				$button_class = $array['class'] && $array['class'][0] == '+' ? 'default '.substr($array['class'], 1) : $array['class'];
-				$button .= "class='btn btn-".($button_class ? $button_class : 'default')." ".($array['disabled'] ? 'disabled' : null)."' ";
-				//ensure margin* styles are not applied to the button element when a link is defined
-				if (is_array($array['style']) && @sizeof($array['style']) != 0) {
-					foreach ($array['style'] as $property => $value) {
-						if (!$array['link'] || !substr_count($property, 'margin')) {
-							$styles .= $property.': '.$value.'; ';
-						}
+			}
+			$array['style'] = $styles;
+			unset($styles);
+		}
+		//button: open
+		$button = "<button ";
+		$button .= "type='" . (!empty($array['type']) ? $array['type'] : 'button') . "' ";
+		$button .= !empty($array['name']) ? "name=" . self::quote($array['name']) . " " : null;
+		$button .= !empty($array['value']) ? "value=" . self::quote($array['value']) . " " : null;
+		$button .= !empty($array['id']) ? "id='" . $array['id'] . "' " : null;
+		$button .= !empty($array['label']) ? "alt=" . self::quote($array['label']) . " " : (!empty($array['title']) ? "alt=" . self::quote($array['title']) . " " : null);
+		if ($button_icons == 'only' || $button_icons == 'auto' || $array['title']) {
+			if (!empty($array['title']) || !empty($array['label'])) {
+				$button .= "title=" . (!empty($array['title']) ? self::quote($array['title']) : self::quote($array['label'])) . " ";
+			}
+		}
+		$button .= !empty($array['onclick']) ? "onclick=" . self::quote($array['onclick']) . " " : null;
+		$button .= !empty($array['onmouseover']) ? "onmouseenter=" . self::quote($array['onmouseover']) . " " : null;
+		$button .= !empty($array['onmouseout']) ? "onmouseleave=" . self::quote($array['onmouseout']) . " " : null;
+		//detect class addition (using + prefix)
+		$button_class = !empty($array['class']) && substr($array['class'], 0, 1) == '+' ? 'default ' . substr($array['class'], 1) : $array['class'] ?? '';
+		$button .= "class='btn btn-" . (!empty($button_class) ? $button_class : 'default') . " " . (isset($array['disabled']) && $array['disabled'] ? 'disabled' : null) . "' ";
+		//ensure margin* styles are not applied to the button element when a link is defined
+		if (!empty($array['style']) && is_array($array['style']) && @sizeof($array['style']) != 0) {
+			$styles = '';
+			foreach ($array['style'] as $property => $value) {
+				if (empty($array['link']) || !substr_count($property, 'margin')) {
+					$styles .= $property . ': ' . $value . '; ';
+				}
+			}
+			$button .= $styles ? "style=" . self::quote($styles) . " " : null;
+			unset($styles);
+		}
+		$button .= isset($array['disabled']) && $array['disabled'] ? "disabled='disabled' " : null;
+		$button .= ">";
+		//icon
+		if (!empty($array['icon']) && (
+				$button_icons == 'only' ||
+				$button_icons == 'always' ||
+				$button_icons == 'auto' ||
+				!$array['label']
+			)) {
+			$icon_class = is_array($array['icon']) ? $array['icon']['text'] : $array['icon'];
+			$button .= "<span class='" . (substr($icon_class, 0, 3) != 'fa-' ? 'fa-solid fa-' : null) . $icon_class . " fa-fw'></span>";
+		}
+		//label
+		if (!empty($array['label']) && (
+				$button_icons != 'only' ||
+				!$array['icon'] ||
+				$array['class'] == 'link'
+			)) {
+			if (!empty($array['icon']) && $button_icons != 'always' && $button_icons != 'never' && isset($array['collapse']) && $array['collapse'] !== false) {
+				if ($array['collapse'] != '') {
+					$collapse_class = $array['collapse'];
+				} elseif (self::$collapse !== false) {
+					$collapse_class = self::$collapse;
+				}
+			}
+			$pad_class = !empty($array['icon']) ? 'pad' : null;
+			$button .= "<span class='button-label " . ($collapse_class ?? '') . " " . $pad_class . "'>" . $array['label'] . "</span>";
+		}
+		//button: close
+		$button .= "</button>";
+		//link
+		if (!empty($array['link'])) {
+			$anchor = "<a ";
+			$anchor .= "href='" . self::escape_href($array['link']) . "' ";
+			$anchor .= "target='" . (!empty($array['target']) ? $array['target'] : '_self') . "' ";
+			//ensure only margin* styles are applied to the anchor element
+			if (!empty($array['style']) && is_array($array['style']) && @sizeof($array['style']) != 0) {
+				$styles = '';
+				foreach ($array['style'] as $property => $value) {
+					if (substr_count($property, 'margin')) {
+						$styles .= $property . ': ' . $value . '; ';
 					}
-					$button .= $styles ? "style=".self::quote($styles)." " : null;
-					unset($styles);
 				}
-				$button .= $array['disabled'] ? "disabled='disabled' " : null;
-				$button .= ">";
-			//icon
-				if ($array['icon'] && (
-					$button_icons == 'only' ||
-					$button_icons == 'always' ||
-					$button_icons == 'auto' ||
-					!$array['label']
-					)) {
-					$icon_class = is_array($array['icon']) ? $array['icon']['text'] : 'fas fa-'.$array['icon'];
-					$button .= "<span class='".$icon_class." fa-fw'></span>";
-				}
-			//label
-				if ($array['label'] && (
-					$button_icons != 'only' ||
-					!$array['icon'] ||
-					$array['class'] == 'link'
-					)) {
-					if ($array['icon'] && $button_icons != 'always' && $button_icons != 'never' && $array['collapse'] !== false) {
-						if ($array['collapse'] != '') {
-							$collapse_class = $array['collapse'];
-						}
-						else if (self::$collapse !== false) {
-							$collapse_class = self::$collapse;
-						}
-					}
-					$pad_class = $array['icon'] ? 'pad' : null;
-					$button .= "<span class='button-label ".$collapse_class." ".$pad_class."'>".$array['label']."</span>";
-				}
-			//button: close
-				$button .= "</button>";
-			//link
-				if ($array['link']) {
-					$anchor = "<a ";
-					$anchor .= "href='".$array['link']."' ";
-					$anchor .= "target='".($array['target'] ? $array['target'] : '_self')."' ";
-					//ensure only margin* styles are applied to the anchor element
-					if (is_array($array['style']) && @sizeof($array['style']) != 0) {
-						foreach ($array['style'] as $property => $value) {
-							if (substr_count($property, 'margin')) {
-								$styles .= $property.': '.$value.'; ';
-							}
-						}
-						$anchor .= $styles ? "style=".self::quote($styles)." " : null;
-						unset($styles);
-					}
-					$anchor .= $array['disabled'] ? "class='disabled' onclick='return false;' " : null;
-					$anchor .= ">";
-					$button = $anchor.$button."</a>";
-				}
-			return $button;
-			unset($button);
+				$anchor .= $styles ? "style=" . self::quote($styles) . " " : null;
+				unset($styles);
+			}
+			$anchor .= isset($array['disabled']) && $array['disabled'] ? "class='disabled' onclick='return false;' " : null;
+			$anchor .= ">";
+			$button = $anchor . $button . "</a>";
+		}
+		return $button;
+	}
+
+	/**
+	 * Quotes a value by surrounding it with single or double quotes based on whether it contains single quotes.
+	 *
+	 * @param string $value The value to be quoted.
+	 *
+	 * @return string The quoted value.
+	 */
+	private static function quote($value) {
+		return substr_count($value, "'") ? '"' . $value . '"' : "'" . $value . "'";
+	}
+
+	/**
+	 * Escapes a URL for safe use in an href attribute.
+	 *
+	 * In addition to HTML-encoding the value, this blocks URLs that could be
+	 * used to execute script or navigate the user to an external origin:
+	 *   - active/unsafe URI schemes (javascript:, vbscript:, data:, file:, ...)
+	 *   - protocol-relative URLs (//example.com)
+	 * Only relative same-origin paths and http(s) URLs are permitted.
+	 *
+	 * The scheme is resolved the same way a browser does: leading whitespace is
+	 * skipped and embedded tab/line-feed/carriage-return characters are ignored,
+	 * so obfuscated schemes such as "  javascript:" or "java\tscript:" are still
+	 * detected and blocked.
+	 *
+	 * @param string $url The URL to escape.
+	 *
+	 * @return string The escaped URL, or an empty string if the URL is not safe.
+	 */
+	private static function escape_href(string $url): string {
+		// clear leading and trailing whitespace
+		$url = trim($url);
+		if ($url === '') {
+			return '';
 		}
 
-		private static function quote($value) {
-			return substr_count($value, "'") ? '"'.$value.'"' : "'".$value."'";
+		// normalized copy used only for the safety checks below: browsers ignore
+		// control characters when resolving the scheme, and schemes are case-insensitive
+		$normalized = strtolower(preg_replace('/[\x00-\x20\x7F]/', '', $url));
+
+		// if the URL defines a URI scheme, only http and https are permitted;
+		// block javascript:, vbscript:, data:, file:, blob:, ftp:, etc.
+		if (preg_match('/^[a-z][a-z0-9+.\-]*:/', $normalized, $matches)) {
+			if (!in_array(substr($matches[0], 0, -1), ['http', 'https'], true)) {
+				return '';
+			}
 		}
 
+		// block protocol-relative URLs that would navigate to an external origin
+		if (strncmp($normalized, '//', 2) === 0) {
+			return '';
+		}
+
+		return htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
 	}
 }
 
@@ -163,7 +224,7 @@ if (!class_exists('button')) {
 
 	type		'button' (default) | 'submit' | 'link'
 	label		button text
-	icon		name without vendor prefix (e.g. 'user' instead of 'fa-user')
+	icon		name with full vendor style and prefix (e.g. 'fa-solid fa-user' instead of 'fa-user' or 'user')
 	value		submitted value (if type is also set to 'submit')
 	target		'_blank' | '_self' (default) | etc
 	onclick		javascript
@@ -232,5 +293,3 @@ if (!class_exists('button')) {
 
 
 */
-
-?>

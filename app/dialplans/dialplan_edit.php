@@ -17,7 +17,7 @@
 
 	The Initial Developer of the Original Code is
 	Mark J Crane <markjcrane@fusionpbx.com>
-	Portions created by the Initial Developer are Copyright (C) 2008-2020
+	Portions created by the Initial Developer are Copyright (C) 2008-2026
 	the Initial Developer. All Rights Reserved.
 
 	Contributor(s):
@@ -25,36 +25,54 @@
 	Luis Daniel Lucio Quiroz <dlucio@okay.com.mx>
 */
 
-//includes
-	require_once "root.php";
-	require_once "resources/require.php";
+//includes files
+	require_once dirname(__DIR__, 2) . "/resources/require.php";
 	require_once "resources/check_auth.php";
 	require_once "resources/paging.php";
 
 //check permissions
-	if (permission_exists('dialplan_add')
+	if (!(permission_exists('dialplan_add')
 		|| permission_exists('dialplan_edit')
 		|| permission_exists('inbound_route_add')
 		|| permission_exists('inbound_route_edit')
 		|| permission_exists('outbound_route_add')
-		|| permission_exists('outbound_route_edit')
-		|| permission_exists('fifo_add')
-		|| permission_exists('fifo_edit')
-		|| permission_exists('time_condition_add')
-		|| permission_exists('time_condition_edit')) {
-		//access granted
-	}
-	else {
+		|| permission_exists('outbound_route_edit'))) {
 		echo "access denied";
 		exit;
+	}
+
+//declared functions
+	/**
+	 * Checks if a dialplan detail record is marked for deletion
+	 *
+	 * @param string $uuid UUID of the dialplan detail record
+	 * @param array  $deleted_details array of dialplan detail records marked for deletion
+	 *
+	 * @return bool Returns true if user has permission and dialplan detail is marked for deletion
+	 */
+	function marked_for_deletion(string $uuid, array $deleted_details): bool {
+		if (permission_exists('dialplan_detail_delete')) {
+			return array_key_exists($uuid, $deleted_details);
+		}
+		return false;
 	}
 
 //add multi-lingual support
 	$language = new text;
 	$text = $language->get();
 
+//set the defaults
+	$dialplan_uuid = '';
+	$dialplan_name = '';
+	$dialplan_number = '';
+	$hostname = '';
+	$dialplan_description = '';
+
+//ensure this is always an array
+	$marked_for_deletion = [];
+
 //set the action as an add or an update
-	if (is_uuid($_GET["id"])) {
+	if (!empty($_GET["id"]) && (is_uuid($_GET["id"]))) {
 		$action = "update";
 		$dialplan_uuid = $_GET["id"];
 	}
@@ -62,41 +80,102 @@
 		$action = "add";
 	}
 
-//set the app_uuid
-	if (is_uuid($_REQUEST["app_uuid"])) {
-		$app_uuid = $_REQUEST["app_uuid"];
-	}
+// Set variables from http GET parameters
+	$app_uuid = is_uuid($_GET['app_uuid'] ?? '') ? $_GET['app_uuid'] : '';
+	$context = $_GET['context'] ?? '';
+	$page = is_numeric($_GET['page'] ?? '') ? $_GET['page'] : 0;
+	$order_by = preg_replace('#[^a-zA-Z0-9_\-]#', '', $_GET['order_by'] ?? '');
+	$order = ($_GET['order'] ?? '') === 'desc' ? 'desc' : 'asc';
+	$search = $_GET['search'] ?? '';
+	$show = $_GET['show'] ?? '';
 
-//get the http post values and set them as php variables
+// Build the query string
+	$url_params = [];
+	if (!empty($app_uuid)) {
+		$url_params['app_uuid'] = $app_uuid;
+	}
+	if (!empty($context)) {
+		$url_params['context'] = $context;
+	}
+	if (!empty($page)) {
+		$url_params['page'] = $page;
+	}
+	if (!empty($_GET['order_by'])) {
+		$url_params['order_by'] = $order_by;
+	}
+	if (!empty($_GET['order'])) {
+		$url_params['order'] = $order;
+	}
+	if (!empty($search)) {
+		$url_params['search'] = $search;
+	}
+	if (!empty($show) && $show == 'all' && permission_exists('dialplan_all')) {
+		$url_params['show'] = $show;
+	}
+	$query_string = http_build_query($url_params);
+
+//get the HTTP POST values and set them as PHP variables
 	if (count($_POST) > 0) {
 		$hostname = $_POST["hostname"];
 		$dialplan_name = $_POST["dialplan_name"];
 		$dialplan_number = $_POST["dialplan_number"];
 		$dialplan_order = $_POST["dialplan_order"];
-		$dialplan_continue = $_POST["dialplan_continue"] != '' ? $_POST["dialplan_continue"] : 'false';
-		$dialplan_details = $_POST["dialplan_details"];
+		$dialplan_continue = $_POST["dialplan_continue"];
+		$dialplan_details = $_POST["dialplan_details"] ?? null;
 		$dialplan_context = $_POST["dialplan_context"];
 		$dialplan_enabled = $_POST["dialplan_enabled"];
 		$dialplan_description = $_POST["dialplan_description"];
-		$dialplan_details_delete = $_POST["dialplan_details_delete"];
+		$dialplan_details_delete = $_POST["dialplan_details_delete"] ?? null;
+		if (!empty($dialplan_details_delete)) {
+			foreach ($dialplan_details_delete as $dialplan_detail) {
+				//check if it is marked for deletion
+				if (($dialplan_detail['checked'] ?? false) == 'true') {
+					$marked_for_deletion[$dialplan_detail['uuid']] = $dialplan_detail['uuid'];
+				}
+			}
+		}
 	}
 
 //get the list of applications
-	if (!is_array($_SESSION['switch']['applications'])) {
-		$fp = event_socket_create($_SESSION['event_socket_ip_address'], $_SESSION['event_socket_port'], $_SESSION['event_socket_password']);
-		if ($fp) {
-			$result = event_socket_request($fp, 'api show application');
-			$_SESSION['switch']['applications'] = explode("\n\n", $result);
-			$_SESSION['switch']['applications'] = explode("\n", $_SESSION['switch']['applications'][0]);
+	if (empty($_SESSION['switch']['applications']) || !is_array($_SESSION['switch']['applications'])) {
+		$esl = event_socket::create();
+		if ($esl->is_connected()) {
+			$result = event_socket::api('show application');
+
+			$show_applications = explode("\n\n", $result);
+			$raw_applications = explode("\n", $show_applications[0]);
 			unset($result);
-			unset($fp);
+			unset($esl);
+
+			$previous_application = null;
+			foreach($raw_applications as $row) {
+				if (!empty($row)) {
+					$application_array = explode(",", $row);
+					$application = $application_array[0];
+
+					if (
+						$application != "name"
+						&& $application != "system"
+						&& $application != "spawn"
+						&& $application != "bg_spawn"
+						&& $application != "spawn_stream"
+						&& stristr($application, "[") != true
+					) {
+						if ($application != $previous_application) {
+							$applications[] = $application;
+						}
+					}
+					$previous_application = $application;
+				}
+			}
+			$_SESSION['switch']['applications'] = $applications;
 		} else {
 			$_SESSION['switch']['applications'] = Array();
 		}
 	}
 
 //process and save the data
-	if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
+	if (count($_POST) > 0 && empty($_POST["persistformvar"])) {
 
 		//get the dialplan uuid
 			if ($action == "update") {
@@ -104,11 +183,9 @@
 			}
 
 		//process the http post data by submitted action
-			if ($_POST['action'] != '' && is_uuid($_POST['dialplan_uuid'])) {
+			if (!empty($_POST['action']) && is_uuid($_POST['dialplan_uuid'])) {
 				$array[0]['checked'] = 'true';
 				$array[0]['uuid'] = $_POST['dialplan_uuid'];
-
-				$list_page = 'dialplans.php'.(is_uuid($app_uuid) ? '?app_uuid='.urlencode($app_uuid) : null);
 
 				switch ($_POST['action']) {
 					case 'copy':
@@ -120,7 +197,7 @@
 							permission_exists('time_condition_add')
 							) {
 							$obj = new dialplan;
-							$obj->app_uuid = $app_uuid;
+							$obj->app_uuid = $app_uuid ?? null;
 							$obj->list_page = $list_page;
 							$obj->copy($array);
 						}
@@ -134,14 +211,14 @@
 							permission_exists('time_condition_delete')
 							) {
 							$obj = new dialplan;
-							$obj->app_uuid = $app_uuid;
+							$obj->app_uuid = $app_uuid ?? null;
 							$obj->list_page = $list_page;
 							$obj->delete($array);
 						}
 						break;
 				}
 
-				header('Location: '.$list_page);
+				header('Location: dialplans.php'.($query_string ? '?'.$query_string : ''));
 				exit;
 			}
 
@@ -153,15 +230,30 @@
 				exit;
 			}
 
+		//verify the user is authorized to update this dialplan
+			if ($action == 'update' && is_uuid($dialplan_uuid) && !permission_exists('dialplan_all') && !permission_exists('dialplan_domain')) {
+				$sql = "select count(*) from v_dialplans ";
+				$sql .= "where dialplan_uuid = :dialplan_uuid ";
+				$sql .= "and (domain_uuid = :domain_uuid or domain_uuid is null) ";
+				$parameters['dialplan_uuid'] = $dialplan_uuid;
+				$parameters['domain_uuid'] = $_SESSION['domain_uuid'];
+				if ($database->select($sql, $parameters, 'column') == 0) {
+					message::add($text['message-failed'],'negative');
+					header('Location: dialplans.php'.($query_string ? '?'.$query_string : ''));
+					exit;
+				}
+				unset($sql, $parameters);
+			}
+
 		//check for all required data
 			$msg = '';
-			if (strlen($dialplan_name) == 0) { $msg .= $text['message-required'].$text['label-name']."<br>\n"; }
-			if (strlen($dialplan_order) == 0) { $msg .= $text['message-required'].$text['label-order']."<br>\n"; }
-			if (strlen($dialplan_continue) == 0) { $msg .= $text['message-required'].$text['label-continue']."<br>\n"; }
-			if (strlen($dialplan_context) == 0) { $msg .= $text['message-required'].$text['label-context']."<br>\n"; }
-			if (strlen($dialplan_enabled) == 0) { $msg .= $text['message-required'].$text['label-enabled']."<br>\n"; }
-			//if (strlen($dialplan_description) == 0) { $msg .= $text['message-required'].$text['label-description']."<br>\n"; }
-			if (strlen($msg) > 0 && strlen($_POST["persistformvar"]) == 0) {
+			if (empty($dialplan_name)) { $msg .= $text['message-required'].$text['label-name']."<br>\n"; }
+			if (empty($dialplan_order)) { $msg .= $text['message-required'].$text['label-order']."<br>\n"; }
+			if (empty($dialplan_continue)) { $msg .= $text['message-required'].$text['label-continue']."<br>\n"; }
+			if (empty($dialplan_context)) { $msg .= $text['message-required'].$text['label-context']."<br>\n"; }
+			if (empty($dialplan_enabled)) { $msg .= $text['message-required'].$text['label-enabled']."<br>\n"; }
+			//if (empty($dialplan_description)) { $msg .= $text['message-required'].$text['label-description']."<br>\n"; }
+			if (!empty($msg) && empty($_POST["persistformvar"])) {
 				require_once "resources/header.php";
 				require_once "resources/persist_form_var.php";
 				echo "<div align='center'>\n";
@@ -212,16 +304,22 @@
 			$array['dialplans'][$x]['dialplan_enabled'] = $_POST["dialplan_enabled"];
 			$array['dialplans'][$x]['dialplan_description'] = $_POST["dialplan_description"];
 			$y = 0;
-			if (is_array($_POST["dialplan_details"])) {
+			if (!empty($_POST["dialplan_details"]) && is_array($_POST["dialplan_details"])) {
 				foreach ($_POST["dialplan_details"] as $row) {
-					if (strlen($row["dialplan_detail_tag"]) > 0) {
-						if (strlen($row["dialplan_detail_uuid"]) > 0) {
+					if (!empty($row["dialplan_detail_tag"]) && !marked_for_deletion($row['dialplan_detail_uuid'] ?? '', $marked_for_deletion)) {
+						if (!empty($row["dialplan_detail_uuid"])) {
 							$array['dialplans'][$x]['dialplan_details'][$y]['dialplan_detail_uuid'] = $row["dialplan_detail_uuid"];
 						}
 						if (!preg_match("/system/i", $row["dialplan_detail_type"])) {
 							$dialplan_detail_type = $row["dialplan_detail_type"];
 						}
+						if (!preg_match("/spawn/i", $row["dialplan_detail_type"])) {
+							$dialplan_detail_type = $row["dialplan_detail_type"];
+						}
 						if (!preg_match("/system/i", $row["dialplan_detail_data"])) {
+							$dialplan_detail_data = $row["dialplan_detail_data"];
+						}
+						if (!preg_match("/spawn/i", $row["dialplan_detail_data"])) {
 							$dialplan_detail_data = $row["dialplan_detail_data"];
 						}
 						$array['dialplans'][$x]['dialplan_details'][$y]['domain_uuid'] = is_uuid($_POST["domain_uuid"]) ? $_POST["domain_uuid"] : null;
@@ -238,33 +336,46 @@
 				}
 			}
 
+		//update dialplan detail order if drag and drop was used
+			if (!empty($_POST['dialplan_details_order'])) {
+				$dialplan_details_order = explode(",", $_POST["dialplan_details_order"]);
+
+				foreach ($dialplan_details_order as $dialplan) {
+					list($uuid, $order, $group_id) = explode("|", $dialplan);
+
+					foreach ($array['dialplans'][0]['dialplan_details'] as &$key) {
+						if ($key['dialplan_detail_uuid'] == $uuid) {
+							$key['dialplan_detail_order'] = $order;
+							$key['dialplan_detail_group'] = $group_id;
+							break;
+						}
+					}
+					unset($key);
+				}
+			}
+
+		//update the dialplan_xml by using the array
+			$dialplans = new dialplan;
+			$dialplans->source = "details";
+			$dialplans->destination = "array";
+			$dialplans->uuid = $dialplan_uuid;
+			$dialplans->prepare_details($array);
+			$dialplan_array = $dialplans->xml();
+
+		//add the dialplan xml to the array
+			$array['dialplans'][$x]['dialplan_xml'] = $dialplan_array[$dialplan_uuid];
+
 		//add or update the database
-			$database = new database;
-			$database->app_name = 'dialplans';
-			$database->app_uuid = $app_uuid;
-			$database->uuid($dialplan_uuid);
 			$database->save($array);
 			unset($array);
 
 		//remove checked dialplan details
-			if (
-				$action == 'update'
-				&& permission_exists('dialplan_detail_delete')
-				&& is_array($dialplan_details_delete)
-				&& @sizeof($dialplan_details_delete) != 0
-				) {
+			if ($action == 'update' && permission_exists('dialplan_detail_delete') && !empty($dialplan_details_delete)) {
 				$obj = new dialplan;
 				$obj->dialplan_uuid = $dialplan_uuid;
-				$obj->app_uuid = $app_uuid;
+				$obj->app_uuid = $app_uuid ?? null;
 				$obj->delete_details($dialplan_details_delete);
 			}
-
-		//update the dialplan xml
-			$dialplans = new dialplan;
-			$dialplans->source = "details";
-			$dialplans->destination = "database";
-			$dialplans->uuid = $dialplan_uuid;
-			$dialplans->xml();
 
 		//clear the cache
 			$cache = new cache;
@@ -285,17 +396,34 @@
 			else if ($action == "update") {
 				message::add($text['message-update']);
 			}
-			header("Location: ?id=".escape($dialplan_uuid).(is_uuid($app_uuid) ? "&app_uuid=".$app_uuid : null));
+			header("Location: ?id=".urlencode($dialplan_uuid).($query_string ? '&'.$query_string : ''));
 			exit;
 
-	} //(count($_POST)>0 && strlen($_POST["persistformvar"]) == 0)
+	} //(count($_POST)>0 && empty($_POST["persistformvar"]))
 
 //pre-populate the form
-	if (count($_GET) > 0 && $_POST["persistformvar"] != "true") {
-		$sql = "select * from v_dialplans ";
+	if (!empty($_GET) && count($_GET) > 0 && (empty($_POST["persistformvar"]) || $_POST["persistformvar"] != "true")) {
+		$sql = "select ";
+		$sql .= "domain_uuid, ";
+		$sql .= "dialplan_uuid, ";
+		$sql .= "app_uuid, ";
+		$sql .= "hostname, ";
+		$sql .= "dialplan_context, ";
+		$sql .= "dialplan_name, ";
+		$sql .= "dialplan_number, ";
+		$sql .= "dialplan_destination, ";
+		$sql .= "dialplan_continue, ";
+		$sql .= "dialplan_xml, ";
+		$sql .= "dialplan_order, ";
+		$sql .= "dialplan_enabled, ";
+		$sql .= "dialplan_description ";
+		$sql .= "from v_dialplans ";
 		$sql .= "where dialplan_uuid = :dialplan_uuid ";
+		if (!permission_exists('dialplan_all') && !permission_exists('dialplan_domain')) {
+			$sql .= "and (domain_uuid = :domain_uuid or domain_uuid is null) ";
+			$parameters['domain_uuid'] = $_SESSION['domain_uuid'];
+		}
 		$parameters['dialplan_uuid'] = $dialplan_uuid;
-		$database = new database;
 		$row = $database->select($sql, $parameters, 'row');
 		if (is_array($row) && @sizeof($row) != 0) {
 			$domain_uuid = $row["domain_uuid"];
@@ -312,28 +440,35 @@
 		unset($sql, $parameters, $row);
 	}
 
-//set the defaults
-	if (strlen($dialplan_context) == 0) {
-		$dialplan_context = $_SESSION['domain_name'];
-	}
-	if (strlen($dialplan_order) == 0) {
-		$dialplan_order = '200';
-	}
-	if (strlen($dialplan_destination) == 0) {
-		$dialplan_destination = 'false';
-	}
-
 //get the dialplan details in an array
 	$sql = "select ";
 	$sql .= "domain_uuid, dialplan_uuid, dialplan_detail_uuid, dialplan_detail_tag, dialplan_detail_type, dialplan_detail_data, ";
-	$sql .= "dialplan_detail_break, dialplan_detail_inline, dialplan_detail_group, dialplan_detail_order, cast(dialplan_detail_enabled as text) ";
+	$sql .= "dialplan_detail_break, dialplan_detail_inline, dialplan_detail_group, dialplan_detail_order, dialplan_detail_enabled ";
 	$sql .= "from v_dialplan_details ";
 	$sql .= "where dialplan_uuid = :dialplan_uuid ";
+	if (!permission_exists('dialplan_all') && !permission_exists('dialplan_domain')) {
+		$sql .= "and (domain_uuid = :domain_uuid or domain_uuid is null) ";
+		$parameters['domain_uuid'] = $_SESSION['domain_uuid'];
+	}
 	$sql .= "order by dialplan_detail_group asc, dialplan_detail_order asc";
 	$parameters['dialplan_uuid'] = $dialplan_uuid;
-	$database = new database;
 	$result = $database->select($sql, $parameters, 'all');
 	unset($sql, $parameters);
+
+//set the defaults
+	$dialplan_context = $dialplan_context ?? $_SESSION['domain_name'];
+	$dialplan_order = $dialplan_order ?? '200';
+	$dialplan_destination = $dialplan_destination ?? false;
+	$dialplan_continue = $dialplan_continue ?? true;
+	$dialplan_enabled = $dialplan_enabled ?? true;
+
+//define the maximum dialplan order number
+	$dialplan_order_max = 999;
+
+//outbound routes - limit the dialplan order no more than 300 to prevent loop with call-forward-all
+	if ($app_uuid == '8c914ec3-9fc0-8ab5-4cda-6c9288bdc9a3') {
+		$dialplan_order_max = 300;
+	}
 
 //create a new array that is sorted into groups and put the tags in order conditions, actions, anti-actions
 	//set the array index
@@ -415,8 +550,8 @@
 					$details[$group][$x]['dialplan_detail_inline'] = '';
 					$details[$group][$x]['dialplan_detail_group'] = $group;
 					$details[$group][$x]['dialplan_detail_order'] = $dialplan_detail_order;
-					$details[$group][$x]['dialplan_detail_enabled'] = 'true';
-					
+					$details[$group][$x]['dialplan_detail_enabled'] = true;
+
 			}
 		}
 	//sort the details array by group number
@@ -471,10 +606,10 @@
 	echo "<div class='action_bar' id='action_bar'>\n";
 	echo "	<div class='heading'><b>".$text['title-dialplan_edit']."</b></div>\n";
 	echo "	<div class='actions'>\n";
-	echo button::create(['type'=>'button','label'=>$text['button-back'],'icon'=>$_SESSION['theme']['button_icon_back'],'id'=>'btn_back','link'=>'dialplans.php'.(is_uuid($app_uuid) ? "?app_uuid=".urlencode($app_uuid) : null)]);
+	echo button::create(['type'=>'button','label'=>$text['button-back'],'icon'=>$settings->get('theme', 'button_icon_back'),'id'=>'btn_back','link'=>'dialplans.php'.($query_string ? '?'.$query_string : '')]);
 	if ($action == 'update') {
 		if (permission_exists('dialplan_xml')) {
-			echo button::create(['type'=>'button','label'=>$text['button-xml'],'icon'=>'code','style'=>'margin-left: 15px;','link'=>'dialplan_xml.php?id='.urlencode($dialplan_uuid).(is_uuid($app_uuid) ? "&app_uuid=".urlencode($app_uuid) : null)]);
+			echo button::create(['type'=>'button','label'=>$text['button-xml'],'icon'=>'code','style'=>'margin-left: 15px;','link'=>'dialplan_xml.php?id='.urlencode($dialplan_uuid ?? null).($query_string ? '&'.$query_string : '')]);
 		}
 		$button_margin = 'margin-left: 15px;';
 		if (
@@ -484,7 +619,7 @@
 			permission_exists('fifo_add') ||
 			permission_exists('time_condition_add')
 			) {
-			echo button::create(['type'=>'button','label'=>$text['button-copy'],'icon'=>$_SESSION['theme']['button_icon_copy'],'name'=>'btn_copy','style'=>$button_margin,'onclick'=>"modal_open('modal-copy','btn_copy');"]);
+			echo button::create(['type'=>'button','label'=>$text['button-copy'],'icon'=>$settings->get('theme', 'button_icon_copy'),'name'=>'btn_copy','style'=>$button_margin ?? null,'onclick'=>"modal_open('modal-copy','btn_copy');"]);
 			unset($button_margin);
 		}
 		if (
@@ -495,11 +630,11 @@
 			permission_exists('fifo_delete') ||
 			permission_exists('time_condition_delete')
 			) {
-			echo button::create(['type'=>'button','label'=>$text['button-delete'],'icon'=>$_SESSION['theme']['button_icon_delete'],'name'=>'btn_delete','style'=>$button_margin,'onclick'=>"modal_open('modal-delete','btn_delete');"]);
+			echo button::create(['type'=>'button','label'=>$text['button-delete'],'icon'=>$settings->get('theme', 'button_icon_delete'),'name'=>'btn_delete','style'=>$button_margin ?? null,'onclick'=>"modal_open('modal-delete','btn_delete');"]);
 			unset($button_margin);
 		}
 	}
-	echo button::create(['type'=>'submit','label'=>$text['button-save'],'icon'=>$_SESSION['theme']['button_icon_save'],'id'=>'btn_save','style'=>'margin-left: 15px;']);
+	echo button::create(['type'=>'submit','label'=>$text['button-save'],'icon'=>$settings->get('theme', 'button_icon_save'),'id'=>'btn_save','style'=>'margin-left: 15px;']);
 	echo "	</div>\n";
 	echo "	<div style='clear: both;'></div>\n";
 	echo "</div>\n";
@@ -529,6 +664,7 @@
 	echo $text['description-dialplan-edit']."\n";
 	echo "<br /><br />\n";
 
+	echo "<div class='card'>\n";
 	echo "<table width='100%' border='0' cellpadding='0' cellspacing='0'>\n";
 	echo "<tr>\n";
 	echo "<td width='50%' style='vertical-align: top;'>\n";
@@ -577,20 +713,17 @@
 	echo "		".$text['label-continue']."\n";
 	echo "	</td>\n";
 	echo "	<td class='vtable' align='left'>\n";
-	echo "		<select class='formfld' name='dialplan_continue'>\n";
-	if ($dialplan_continue == "true") {
-		echo "			<option value='true' selected='selected'>".$text['option-true']."</option>\n";
+	if ($input_toggle_style_switch) {
+		echo "	<span class='switch'>\n";
 	}
-	else {
-		echo "			<option value='true'>".$text['option-true']."</option>\n";
+	echo "	<select class='formfld' id='dialplan_continue' name='dialplan_continue'>\n";
+	echo "		<option value='true' ".($dialplan_continue == true ? "selected='selected'" : null).">".$text['option-true']."</option>\n";
+	echo "		<option value='false' ".($dialplan_continue == false ? "selected='selected'" : null).">".$text['option-false']."</option>\n";
+	echo "	</select>\n";
+	if ($input_toggle_style_switch) {
+		echo "		<span class='slider'></span>\n";
+		echo "	</span>\n";
 	}
-	if ($dialplan_continue == "false") {
-		echo "			<option value='false' selected='selected'>".$text['option-false']."</option>\n";
-	}
-	else {
-		echo "			<option value='false'>".$text['option-false']."</option>\n";
-	}
-	echo "		</select>\n";
 	echo "	</td>\n";
 	echo "	</tr>\n";
 	echo "	</table>\n";
@@ -606,8 +739,7 @@
 	echo "	</td>\n";
 	echo "	<td class='vtable' align='left' width='70%'>\n";
 	echo "		<select name='dialplan_order' class='formfld'>\n";
-	$i=0;
-	while($i<=999) {
+	for ($i = 0; $i <= $dialplan_order_max; $i++) {
 		$selected = ($i == $dialplan_order) ? "selected" : null;
 		if (strlen($i) == 1) {
 			echo "			<option value='00$i' ".$selected.">00$i</option>\n";
@@ -618,7 +750,6 @@
 		if (strlen($i) == 3) {
 			echo "			<option value='$i' ".$selected.">$i</option>\n";
 		}
-		$i++;
 	}
 	echo "		</select>\n";
 	echo "		<br />\n";
@@ -630,21 +761,17 @@
 	echo "		".$text['label-destination']."\n";
 	echo "	</td>\n";
 	echo "	<td class='vtable' align='left'>\n";
-	echo "		<select class='formfld' name='dialplan_destination'>\n";
-	echo "			<option value=''></option>\n";
-	if ($dialplan_destination == "true") {
-		echo "			<option value='true' selected='selected'>".$text['option-true']."</option>\n";
+	if ($input_toggle_style_switch) {
+		echo "	<span class='switch'>\n";
 	}
-	else {
-		echo "			<option value='true'>".$text['option-true']."</option>\n";
+	echo "	<select class='formfld' id='dialplan_destination' name='dialplan_destination'>\n";
+	echo "		<option value='true' ".($dialplan_destination == true ? "selected='selected'" : null).">".$text['option-true']."</option>\n";
+	echo "		<option value='false' ".($dialplan_destination == false ? "selected='selected'" : null).">".$text['option-false']."</option>\n";
+	echo "	</select>\n";
+	if ($input_toggle_style_switch) {
+		echo "		<span class='slider'></span>\n";
+		echo "	</span>\n";
 	}
-	if ($dialplan_destination == "false") {
-		echo "			<option value='false' selected='selected'>".$text['option-false']."</option>\n";
-	}
-	else {
-		echo "			<option value='false'>".$text['option-false']."</option>\n";
-	}
-	echo "		</select>\n";
 	echo "	</td>\n";
 	echo "	</tr>\n";
 
@@ -682,21 +809,18 @@
 	echo "	<td class='vncellreq' valign='top' align='left' nowrap='nowrap'>\n";
 	echo "	".$text['label-enabled']."\n";
 	echo "	</td>\n";
-	echo "	<td class='vtable' align='left'>\n";
-	echo "	<select class='formfld' name='dialplan_enabled'>\n";
-	if ($dialplan_enabled == "true") {
-		echo "		<option value='true' selected='selected'>".$text['option-true']."</option>\n";
+	echo "	<td class='vtable' style='position: relative;' align='left'>\n";
+	if ($input_toggle_style_switch) {
+		echo "	<span class='switch'>\n";
 	}
-	else {
-		echo "		<option value='true'>".$text['option-true']."</option>\n";
+	echo "	<select class='formfld' id='dialplan_enabled' name='dialplan_enabled'>\n";
+	echo "		<option value='true' ".($dialplan_enabled == true ? "selected='selected'" : null).">".$text['option-true']."</option>\n";
+	echo "		<option value='false' ".($dialplan_enabled == false ? "selected='selected'" : null).">".$text['option-false']."</option>\n";
+	echo "	</select>\n";
+	if ($input_toggle_style_switch) {
+		echo "		<span class='slider'></span>\n";
+		echo "	</span>\n";
 	}
-	if ($dialplan_enabled == "false") {
-		echo "		<option value='false' selected='selected'>".$text['option-false']."</option>\n";
-	}
-	else {
-		echo "		<option value='false'>".$text['option-false']."</option>\n";
-	}
-	echo "		</select>\n";
 	echo "	</td>\n";
 	echo "	</tr>\n";
 
@@ -715,7 +839,8 @@
 	echo "</td>";
 	echo "</tr>";
 	echo "</table>";
-	echo "<br><br>";
+	echo "</div>\n";
+	echo "<br>";
 
 	//dialplan details
 	if ($action == "update") {
@@ -737,6 +862,7 @@
 		//display the results
 			if (is_array($details) && @sizeof($details) != 0) {
 
+				echo "<div class='card'>\n";
 				echo "<table width='100%' border='0' cellpadding='0' cellspacing='0' style='margin: -2px; border-spacing: 2px;'>\n";
 
 				$x = 0;
@@ -745,6 +871,8 @@
 					if ($x != 0) {
 						echo "<tr><td colspan='7'><br><br></td></tr>";
 					}
+
+					echo "<tbody class='sortable' id='".$g."'>\n";
 
 					echo "<tr>\n";
 					echo "<td class='vncellcolreq'>".$text['label-tag']."</td>\n";
@@ -767,7 +895,7 @@
 						foreach($group as $index => $row) {
 
 							//get the values from the database and set as variables
-								$dialplan_detail_uuid = $row['dialplan_detail_uuid'];
+								$dialplan_detail_uuid = $row['dialplan_detail_uuid'] ?? null;
 								$dialplan_detail_tag = $row['dialplan_detail_tag'];
 								$dialplan_detail_type = $row['dialplan_detail_type'];
 								$dialplan_detail_data = $row['dialplan_detail_data'];
@@ -777,18 +905,13 @@
 								$dialplan_detail_order = $row['dialplan_detail_order'];
 								$dialplan_detail_enabled = $row['dialplan_detail_enabled'];
 
-							//default to enabled true
-								if (strlen($dialplan_detail_enabled) == 0) {
-									$dialplan_detail_enabled = 'true';
-								}
-
 							//no border on last row
 								$no_border = ($index == 999) ? "border: none;" : null;
 
 							//begin the row
-								echo "<tr>\n";
+								echo "<tr class='".(is_uuid($dialplan_detail_uuid) ? 'draggable' : null)."' data-detail-uuid='".$dialplan_detail_uuid."' data-detail-tag='".$dialplan_detail_tag."'>\n";
 							//determine whether to hide the element
-								if (strlen($dialplan_detail_tag) == 0) {
+								if (empty($dialplan_detail_tag)) {
 									$element['hidden'] = false;
 									$element['visibility'] = "";
 								}
@@ -820,53 +943,48 @@
 									echo "	<label id=\"label_dialplan_detail_type_".$x."\">".escape($dialplan_detail_type)."</label>\n";
 								}
 								echo "	<select id='dialplan_detail_type_".$x."' name='dialplan_details[".$x."][dialplan_detail_type]' class='formfld' style='width: auto; ".$element['visibility']."' onchange='change_to_input(this);'>\n";
-								if (strlen($dialplan_detail_type) > 0) {
+								if (!empty($dialplan_detail_type)) {
 									echo "	<optgroup label='selected'>\n";
 									echo "		<option value=\"".escape($dialplan_detail_type)."\">".escape($dialplan_detail_type)."</option>\n";
 									echo "	</optgroup>\n";
 								}
 								else {
-									echo "		<option value=''></option>\n";
+									echo "	<option value=''></option>\n";
 								}
-								//if (strlen($dialplan_detail_tag) == 0 || $dialplan_detail_tag == "condition" || $dialplan_detail_tag == "regex") {
-									echo "		<optgroup label='".$text['optgroup-condition_or_regex']."'>\n";
-									echo "		<option value='context'>".$text['option-context']."</option>\n";
-									echo "		<option value='username'>".$text['option-username']."</option>\n";
-									echo "		<option value='rdnis'>".$text['option-rdnis']."</option>\n";
-									echo "		<option value='destination_number'>".$text['option-destination_number']."</option>\n";
-									echo "		<option value='dialplan'>".$text['option-dialplan']."</option>\n";
-									echo "		<option value='caller_id_name'>".$text['option-caller_id_name']."</option>\n";
-									echo "		<option value='caller_id_number'>".$text['option-caller_id_number']."</option>\n";
+								//if (empty($dialplan_detail_tag) || $dialplan_detail_tag == "condition" || $dialplan_detail_tag == "regex") {
+									echo "	<optgroup label='".$text['optgroup-condition_or_regex']."'>\n";
 									echo "		<option value='ani'>".$text['option-ani']."</option>\n";
 									echo "		<option value='ani2'>".$text['option-ani2']."</option>\n";
-									echo "		<option value='uuid'>".$text['option-uuid']."</option>\n";
-									echo "		<option value='source'>".$text['option-source']."</option>\n";
+									echo "		<option value='caller_id_name'>".$text['option-caller_id_name']."</option>\n";
+									echo "		<option value='caller_id_number'>".$text['option-caller_id_number']."</option>\n";
 									echo "		<option value='chan_name'>".$text['option-chan_name']."</option>\n";
+									echo "		<option value='context'>".$text['option-context']."</option>\n";
+									echo "		<option value='destination_number'>".$text['option-destination_number']."</option>\n";
+									echo "		<option value='dialplan'>".$text['option-dialplan']."</option>\n";
 									echo "		<option value='network_addr'>".$text['option-network_addr']."</option>\n";
+									echo "		<option value='rdnis'>".$text['option-rdnis']."</option>\n";
+									echo "		<option value='source'>".$text['option-source']."</option>\n";
+									echo "		<option value='username'>".$text['option-username']."</option>\n";
+									echo "		<option value='uuid'>".$text['option-uuid']."</option>\n";
+									echo "		<option value='\${call_direction}'>\${call_direction}</option>\n";
 									echo "		<option value='\${number_alias}'>\${number_alias}</option>\n";
-									echo "		<option value='\${sip_from_uri}'>\${sip_from_uri}</option>\n";
-									echo "		<option value='\${sip_from_user}'>\${sip_from_user}</option>\n";
-									echo "		<option value='\${sip_from_host}'>\${sip_from_host}</option>\n";
+									echo "		<option value='\${sip_contact_host}'>\${sip_contact_host}</option>\n";
 									echo "		<option value='\${sip_contact_uri}'>\${sip_contact_uri}</option>\n";
 									echo "		<option value='\${sip_contact_user}'>\${sip_contact_user}</option>\n";
-									echo "		<option value='\${sip_contact_host}'>\${sip_contact_host}</option>\n";
+									echo "		<option value='\${sip_h_Diversion}'>\${sip_h_Diversion}</option>\n";
+									echo "		<option value='\${sip_from_host}'>\${sip_from_host}</option>\n";
+									echo "		<option value='\${sip_from_uri}'>\${sip_from_uri}</option>\n";
+									echo "		<option value='\${sip_from_user}'>\${sip_from_user}</option>\n";
 									echo "		<option value='\${sip_to_uri}'>\${sip_to_uri}</option>\n";
 									echo "		<option value='\${sip_to_user}'>\${sip_to_user}</option>\n";
-									echo "		<option value='\${sip_to_host}'>\${sip_to_host}</option>\n";
 									echo "		<option value='\${toll_allow}'>\${toll_allow}</option>\n";
-									echo "		<option value='\${sip_h_Diversion}'>\${sip_h_Diversion}</option>\n";
 									echo "	</optgroup>\n";
 								//}
-								//if (strlen($dialplan_detail_tag) == 0 || $dialplan_detail_tag == "action" || $dialplan_detail_tag == "anti-action") {
+								//if (empty($dialplan_detail_tag) || $dialplan_detail_tag == "action" || $dialplan_detail_tag == "anti-action") {
 									echo "	<optgroup label='".$text['optgroup-applications']."'>\n";
 									if (is_array($_SESSION['switch']['applications'])) {
-										foreach ($_SESSION['switch']['applications'] as $row) {
-											if (strlen($row) > 0) {
-												$application = explode(",", $row);
-												if ($application[0] != "name" && $application[0] != "system" && stristr($application[0], "[") != true) {
-													echo "	<option value='".escape($application[0])."'>".escape($application[0])."</option>\n";
-												}
-											}
+										foreach ($_SESSION['switch']['applications'] as $application) {
+											echo "	<option value='".escape($application)."'>".escape($application)."</option>\n";
 										}
 									}
 									echo "	</optgroup>\n";
@@ -882,7 +1000,7 @@
 										// split up failover bridges and get variables in statement
 										$failover_bridges = explode('|', $dialplan_detail_data);
 										preg_match('/^\{.*\}/', $failover_bridges[0], $bridge_vars);
-										$bridge_vars = $bridge_vars[0];
+										$bridge_vars = $bridge_vars[0] ?? '';
 
 										// rename parse and rename each gateway
 										foreach ($failover_bridges as $bridge_statement_exploded) {
@@ -894,7 +1012,6 @@
 												// retrieve gateway name from db
 												$sql = "select gateway from v_gateways where gateway_uuid = :gateway_uuid ";
 												$parameters['gateway_uuid'] = $bridge_statement[3];
-												$database = new database;
 												$gateways = $database->select($sql, $parameters, 'all');
 												if (is_array($gateways) && @sizeof($gateways) != 0) {
 													$gateway_name = $gateways[0]['gateway'];
@@ -982,13 +1099,13 @@
 								echo "</td>\n";
 							//enabled
 								echo "<td class='vtablerow' style='".$no_border." text-align: center;' onclick=\"label_to_form('label_dialplan_detail_enabled_".$x."','dialplan_detail_enabled_".$x."');\" nowrap='nowrap'>\n";
+								$label_dialplan_detail_enabled = $text['label-'.($dialplan_detail_enabled === true ? 'true' : 'false')];
 								if ($element['hidden']) {
-									echo "	<label id=\"label_dialplan_detail_enabled_".$x."\">".escape($dialplan_detail_enabled)."</label>\n";
+									echo "	<label id=\"label_dialplan_detail_enabled_".$x."\">".$label_dialplan_detail_enabled."</label>\n";
 								}
 								echo "	<select id='dialplan_detail_enabled_".$x."' name='dialplan_details[".$x."][dialplan_detail_enabled]' class='formfld' style='width: auto; ".$element['visibility']."'>\n";
-								echo "	<option></option>\n";
-								echo "	<option value='true' ".($dialplan_detail_enabled == "true" ? $selected : null).">".$text['option-true']."</option>\n";
-								echo "	<option value='false' ".($dialplan_detail_enabled == "false" ? $selected : null).">".$text['option-false']."</option>\n";
+								echo "	<option value='true' ".($dialplan_detail_enabled === true ? $selected : null).">".$text['option-true']."</option>\n";
+								echo "	<option value='false' ".($dialplan_detail_enabled === false ? $selected : null).">".$text['option-false']."</option>\n";
 								echo "	</select>\n";
 								echo "</td>\n";
 							//tools
@@ -1003,17 +1120,24 @@
 									}
 									echo "	</td>\n";
 								}
+								if (is_uuid($dialplan_detail_uuid)) {
+									echo "	<td class='vtable' style='text-align: center;'>\n";
+									echo "		<span class='drag_handle' style='color: #00000055; cursor: grab;'><i class='fa-solid fa-grip-lines' style='width: 15px;'></i></span>\n";
+									echo "	</td>\n";
+								}
 							//end the row
 								echo "</tr>\n";
 							//increment the value
 								$x++;
 						}
 					}
+					echo "</tbody>\n";
 					$x++;
 				} //end foreach
 				unset($details);
 
 				echo "</table>";
+				echo "</div>\n";
 
 			} //end if results
 
@@ -1021,7 +1145,66 @@
 
 	echo "<br /><br />\n";
 
-	echo "<input type='hidden' name='app_uuid' value='".escape($app_uuid)."'>\n";
+	//include sortablejs
+	echo "<script src='/resources/sortablejs/sortable.min.js'></script>";
+
+	//dialplan details drag and drop
+	echo "<input type='hidden' id='dialplan_details_order' name='dialplan_details_order' value='' />\n";
+	?>
+	<style>
+
+	.selected td:has(.drag_handle) {
+		background-color: #00000015;
+	}
+
+	</style>
+	<script>
+
+	const sortable_lists = document.querySelectorAll('.sortable');
+
+	sortable_lists.forEach(function(list) {
+		Sortable.create(list, {
+			group: 'shared',
+			animation: 150,
+			draggable: '.draggable',
+			handle: '.drag_handle',
+			onSort: update_dialplan_details_order,
+			multiDrag: true,
+			selectedClass: 'selected',
+		});
+	});
+
+	function update_dialplan_details_order() {
+		const dialplan_details_list = [];
+		let order = 5;
+
+		sortable_lists.forEach(function(list) {
+			let dialplan_details = list.querySelectorAll('.draggable');
+			const tag_order = ['condition', 'regex', 'action', 'anti-action'];
+
+			//add the dialplan details to the list
+			tag_order.forEach(function(tag) {
+				dialplan_details.forEach(function(dialplan_detail) {
+					let dialplan_tag = dialplan_detail.getAttribute('data-detail-tag');
+					let group_id = dialplan_detail.parentElement.id;
+
+					if (dialplan_tag == tag) {
+						let uuid = dialplan_detail.getAttribute('data-detail-uuid');
+						dialplan_details_list.push(`${uuid}|${order}|${group_id}`);
+						order += 5;
+					}
+				});
+			});
+
+			order += 5;
+		});
+
+		document.getElementById('dialplan_details_order').value = dialplan_details_list;
+	}
+
+	</script>
+	<?php
+
 	if ($action == "update") {
 		echo "	<input type='hidden' name='dialplan_uuid' value='".escape($dialplan_uuid)."'>\n";
 	}

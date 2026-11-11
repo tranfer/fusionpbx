@@ -24,16 +24,12 @@
 	Mark J Crane <markjcrane@fusionpbx.com>
 */
 
-//includes
-	include "root.php";
-	require_once "resources/require.php";
+//includes files
+	require_once dirname(__DIR__, 2) . "/resources/require.php";
 	require_once "resources/check_auth.php";
 
 //check permissions
-	if (permission_exists('call_active_view')) {
-		//access granted
-	}
-	else {
+	if (!permission_exists('call_active_view')) {
 		echo "access denied";
 		exit;
 	}
@@ -60,6 +56,7 @@
 			}
 
 		//verify submitted call uuids
+			$calls = [];
 			if (is_array($_POST['calls']) && @sizeof($_POST['calls']) != 0) {
 				foreach ($_POST['calls'] as $call) {
 					if ($call['checked'] == 'true' && is_uuid($call['uuid'])) {
@@ -67,29 +64,51 @@
 					}
 				}
 			}
-			if (is_uuid($_REQUEST['uuid'])) {
+			if (!empty($_REQUEST['uuid']) && is_uuid($_REQUEST['uuid'])) {
 				$calls[] = $_REQUEST['uuid'];
 			}
 
 		//iterate through calls
-			if (is_array($calls) && @sizeof($calls) != 0) {
+			if (count($calls) > 0) {
 
 				//setup the event socket connection
-					$fp = event_socket_create($_SESSION['event_socket_ip_address'], $_SESSION['event_socket_port'], $_SESSION['event_socket_password']);
+					$event_socket = event_socket::create();
 
 				//execute hangup command
-					foreach ($calls as $call_uuid) {
-						$switch_result = event_socket_request($fp, 'api uuid_kill '.$call_uuid);
+					if ($event_socket->is_connected()) foreach ($calls as $call_uuid) {
+						event_socket::async("uuid_kill ".$call_uuid);
 					}
 
 				//set message
-					message::add($text['message-calls_ended'].': '.@sizeof($calls),'positive');
+					message::add($text['message-calls_ended'].': '.count($calls),'positive');
 
 			}
 
 		//redirect
 			header('Location: calls_active.php');
 			exit;
+
+	}
+	else if ($_REQUEST['action'] == 'eavesdrop' && permission_exists('call_active_eavesdrop')) {
+
+		//set the allowed regex number pattern
+		$number_pattern = '/^[0-9A-Za-z*#+._-]+$/';
+
+		//get the values from HTTP
+		$channnel_uuid = $_GET['chan_uuid'] ?? '';
+		$extension = $_GET['ext'] ?? '';
+		$destination = $_GET['destination'] ?? '';
+
+		//deny access if the variables are not valid
+		if (!is_uuid($channnel_uuid) || !preg_match($number_pattern, $extension) || !preg_match($number_pattern, $destination)) {
+			echo "access denied";
+			exit;
+		}
+
+		$api_cmd = 'bgapi originate {origination_caller_id_name='.$text['label-eavesdrop'].',origination_caller_id_number='.$extension.'}user/'.$destination.'@'.$_SESSION['domain_name'].' &eavesdrop('.$channnel_uuid.')';
+
+		//run the command
+		$switch_result = event_socket::api($api_cmd);
 
 	}
 	else {

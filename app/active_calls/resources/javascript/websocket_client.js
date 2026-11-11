@@ -1,0 +1,159 @@
+class ws_client {
+	constructor(url, token) {
+		this.ws = new WebSocket(url);
+		this.ws.addEventListener('message', this._onMessage.bind(this));
+		this._nextId = 1;
+		this._pending = new Map();
+		this._eventHandlers = new Map();
+		// The token is submitted on every request
+		this.token = token;
+	}
+
+	// internal message handler called when event occurs on the socket
+	_onMessage(ev) {
+		let message;
+		let switch_event;
+		try {
+			//console.log(ev.data);
+			message = JSON.parse(ev.data);
+			// check for authentication request
+			if (message.status_code === 407) {
+				console.log('Authentication Required');
+				return;
+			}
+			switch_event = message.payload;
+			//console.log('envelope received: ',env);
+		} catch (err) {
+			console.error('Error parsing JSON data:', err);
+			//console.error('Invalid JSON:', ev.data);
+			return;
+		}
+
+		// Pull out the request_id first
+		const rid = message.request_id ?? null;
+
+		// If this is the response to a pending request
+		if (rid && this._pending.has(rid)) {
+			const service = message.service_name ?? message.service;
+			const topic = message.topic ?? '';
+			const status = message.status_string ?? message.status ?? 'ok';
+			const status_normalized = String(status).toLowerCase();
+			const code_raw = message.status_code ?? message.code ?? 200;
+			const code = Number.isFinite(Number(code_raw)) ? Number(code_raw) : parseInt(String(code_raw), 10);
+			const payload = message.payload ?? {};
+
+			// active.calls can return multiple rows for one request_id; the first row
+			// reaches this branch and would otherwise be dropped from UI rendering.
+			if (service === 'active.calls' && payload && typeof payload === 'object' && payload.event_name) {
+				this._dispatchEvent(service, payload);
+			}
+
+			const {resolve, reject} = this._pending.get(rid);
+			this._pending.delete(rid);
+
+			const ok_by_status = status_normalized === 'ok' || status_normalized.startsWith('ok') || status_normalized.includes('success');
+			const ok_by_code = !Number.isNaN(code) && code >= 200 && code < 300;
+			if (ok_by_status || ok_by_code) {
+				resolve({service, topic, payload, code, message});
+			} else {
+				const err = new Error(message.message || `Error ${code}`);
+				err.code = code;
+				reject(err);
+			}
+
+			return;
+		}
+
+		// No pending request and empty payload is dropped
+		if (switch_event == null) {
+			return;
+		}
+
+		// Otherwise it's a server‑pushed event…
+		// e.g. env.service === 'event' or env.topic is your event name
+		this._dispatchEvent(message.service_name, switch_event);
+	}
+
+	// Send a request to the websocket server using JSON string
+	request(service, topic = null, payload = {}) {
+		const request_id = String(this._nextId++);
+		const env = {
+			request_id: request_id,
+			service,
+			...(topic !== null ? {topic} : {}),
+			token: this.token,
+			payload: payload
+		};
+		const raw = JSON.stringify(env);
+		this.ws.send(raw);
+		return new Promise((resolve, reject) => {
+			this._pending.set(request_id, {resolve, reject});
+			// TODO: get timeout working to reject if no response in X ms
+		});
+	}
+
+	subscribe(topic) {
+		return this.request('active.calls', topic);
+	}
+
+	unsubscribe(topic) {
+		return this.request('active.calls', topic);
+	}
+
+	// register a callback for server-pushes
+	onEvent(topic, handler) {
+		console.log('registering event listener for ' + topic);
+		if (!this._eventHandlers.has(topic)) {
+			this._eventHandlers.set(topic, []);
+		}
+		this._eventHandlers.get(topic).push(handler);
+	}
+	/**
+	 * Dispatch a server‑push event envelope to all registered handlers.
+	 * @param {object} env
+	 */
+	_dispatchEvent(service, env) {
+		// if service==='event', topic carries the real event name:
+		let event = null;
+		try {
+			event = (typeof env === 'string') ? JSON.parse(env) : env;
+		} catch (err) {
+			console.warn('Ignoring invalid event payload:', err);
+			return;
+		}
+
+		if (event === null || typeof event !== 'object') {
+			return;
+		}
+
+		// dispatch event handlers
+		if (service === 'active.calls') {
+			const topic = event.event_name;
+			if (!topic) {
+				return;
+			}
+
+			let handlers = this._eventHandlers.get(topic) || [];
+			if (handlers.length === 0) {
+				handlers = this._eventHandlers.get('*') || [];
+			}
+			for (const fn of handlers) {
+				try {
+					fn(event);
+				} catch (err) {
+					console.error(`Error in handler for "${topic}":`, err);
+				}
+			}
+		} else {
+			const handlers = this._eventHandlers.get(service) || [];
+			for (const fn of handlers) {
+				try {
+					fn(event.data, event);
+				} catch (err) {
+					console.error(`Error in handler for "${service}":`, err);
+				}
+			}
+		}
+	}
+
+}

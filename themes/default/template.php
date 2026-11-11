@@ -1,4 +1,3 @@
-{* <?php *}
 
 {*//set the doctype *}
 	{if $browser_name == 'Internet Explorer'}
@@ -13,16 +12,16 @@
 <meta http-equiv='Content-Type' content='text/html; charset=UTF-8'>
 <meta http-equiv='X-UA-Compatible' content='IE=edge'>
 <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no' />
+<meta name="robots" content="noindex, nofollow, noarchive" />
 
 {*//external css files *}
 	<link rel='stylesheet' type='text/css' href='{$project_path}/resources/bootstrap/css/bootstrap.min.css.php'>
 	<link rel='stylesheet' type='text/css' href='{$project_path}/resources/bootstrap/css/bootstrap-tempusdominus.min.css.php'>
 	<link rel='stylesheet' type='text/css' href='{$project_path}/resources/bootstrap/css/bootstrap-colorpicker.min.css.php'>
 	<link rel='stylesheet' type='text/css' href='{$project_path}/resources/fontawesome/css/all.min.css.php'>
-	<link rel='stylesheet' type='text/css' href='{$project_path}/themes/default/css.php'>
-
+	<link rel='stylesheet' type='text/css' href='{$project_path}/themes/default/css.php?updated=202608261400'>
 {*//link to custom css file *}
-	{if $settings.theme.custom_css}
+	{if !empty($settings.theme.custom_css)}
 		<link rel='stylesheet' type='text/css' href='{$settings.theme.custom_css}'>
 	{/if}
 
@@ -38,18 +37,45 @@
 	<script language='JavaScript' type='text/javascript' src='{$project_path}/resources/momentjs/moment-with-locales.min.js.php'></script>
 	<script language='JavaScript' type='text/javascript' src='{$project_path}/resources/bootstrap/js/bootstrap.min.js.php'></script>
 	<script language='JavaScript' type='text/javascript' src='{$project_path}/resources/bootstrap/js/bootstrap-tempusdominus.min.js.php'></script>
+	<script language='JavaScript' type='text/javascript'>
+		{literal}
+			//set tempusdominus (calendar/datetime picker) defaults here, not on document ready, so that
+			//pickers built by inline page scripts during body parse also get the correct font awesome icons
+			$.fn.datetimepicker.Constructor.Default = $.extend({}, $.fn.datetimepicker.Constructor.Default, {
+				buttons: {
+					showToday: true,
+					showClear: true,
+					showClose: true,
+				},
+				icons: {
+					time: 'fa-solid fa-clock',
+					date: 'fa-solid fa-calendar-days',
+					up: 'fa-solid fa-arrow-up',
+					down: 'fa-solid fa-arrow-down',
+					previous: 'fa-solid fa-chevron-left',
+					next: 'fa-solid fa-chevron-right',
+					today: 'fa-solid fa-calendar-check',
+					clear: 'fa-solid fa-trash',
+					close: 'fa-solid fa-xmark',
+				}
+			});
+		{/literal}
+	</script>
 	<script language='JavaScript' type='text/javascript' src='{$project_path}/resources/bootstrap/js/bootstrap-colorpicker.min.js.php'></script>
 	<script language='JavaScript' type='text/javascript' src='{$project_path}/resources/bootstrap/js/bootstrap-pwstrength.min.js.php'></script>
 	<script language='JavaScript' type='text/javascript'>{literal}window.FontAwesomeConfig = { autoReplaceSvg: false }{/literal}</script>
-	<script language='JavaScript' type='text/javascript' src='{$project_path}/resources/fontawesome/js/solid.min.js.php' defer></script>
+	<script language='JavaScript' type='text/javascript' src='{$project_path}/resources/fontawesome/js/all.min.js.php' defer></script>
 
 {*//web font loader *}
-	{if $settings.theme.font_loader == 'true'}
+	{if isset($settings.theme.font_loader) && $settings.theme.font_loader == 'true'}
 		{if $settings.theme.font_retrieval != 'asynchronous'}
 			<script language='JavaScript' type='text/javascript' src='//ajax.googleapis.com/ajax/libs/webfont/{$settings.theme.font_loader_version}/webfont.js'></script>
 		{/if}
 		<script language='JavaScript' type='text/javascript' src='{$project_path}/resources/fonts/web_font_loader.php?v={$settings.theme.font_loader_version}'></script>
 	{/if}
+
+{*//javascript functions *}
+	<script language='JavaScript' type='text/javascript' src='{$project_path}/resources/javascript/select_group_option.js'></script>
 
 {*//local javascript *}
 	<script language='JavaScript' type='text/javascript'>
@@ -65,9 +91,10 @@
 					message_text.html(msg);
 					message_text.on('click', function() {
 						var object = $(this);
-						object.clearQueue().finish();
+						object.stop(true);
+						$('#message_container').stop(true);
 						$('#message_container div').remove();
-						$('#message_container').css({opacity: 0, 'height': 0}).css({'height': 'auto'});
+						$('#message_container').css({'opacity': 1, 'height': 0});
 					} );
 					$('#message_container').append(message_text);
 					message_text.css({'height': 'auto'}).animate({opacity: 1}, 250, function(){
@@ -119,7 +146,7 @@
 							{literal}
 							$('.menu_side_control_state').hide();
 							$('.menu_side_item_main_sub_icons').hide();
-							$('.sub_arrows').removeClass('fa-{/literal}{$settings.theme.menu_side_item_main_sub_icon_contract}{literal}').addClass('fa-{/literal}{$settings.theme.menu_side_item_main_sub_icon_expand}{literal}');
+							$('.sub_arrows').removeClass('{/literal}{$settings.theme.menu_side_item_main_sub_icon_contract}{literal}').addClass('{/literal}{$settings.theme.menu_side_item_main_sub_icon_expand}{literal}');
 							$('#menu_side_container').animate({ width: '{/literal}{$settings.theme.menu_side_width_contracted}{literal}px' }, 180, function() {
 								menu_side_state_current = 'contracted';
 							});
@@ -210,62 +237,19 @@
 				}
 
 				function menu_side_item_toggle(item_id) {
-					$('#sub_arrow_'+item_id).toggleClass(['fa-{/literal}{$settings.theme.menu_side_item_main_sub_icon_contract}{literal}','fa-{/literal}{$settings.theme.menu_side_item_main_sub_icon_expand}{literal}']);
-					$('.sub_arrows').not('#sub_arrow_'+item_id).removeClass('fa-{/literal}{$settings.theme.menu_side_item_main_sub_icon_contract}{literal}').addClass('fa-{/literal}{$settings.theme.menu_side_item_main_sub_icon_expand}{literal}');
+					$('#sub_arrow_'+item_id).toggleClass(['{/literal}{$settings.theme.menu_side_item_main_sub_icon_contract}{literal}','{/literal}{$settings.theme.menu_side_item_main_sub_icon_expand}{literal}']);
+					$('.sub_arrows').not('#sub_arrow_'+item_id).removeClass('{/literal}{$settings.theme.menu_side_item_main_sub_icon_contract}{literal}').addClass('{/literal}{$settings.theme.menu_side_item_main_sub_icon_expand}{literal}');
 					$('#sub_'+item_id).slideToggle(180, function() {
-						if (!$(this).is(':hidden')) {
-							$('.menu_side_sub').not($(this)).slideUp(180);
-						}
-					});
-				}
-
-				function menu_side_state_set(state) {
-					var user_setting_set_path = '{/literal}{$project_path}{literal}/core/user_settings/user_setting_set.php?category=theme&subcategory=menu_side_state&name=text&value='+state;
-					var xhr = new XMLHttpRequest();
-					xhr.open('GET', user_setting_set_path);
-					xhr.send(null);
-					xhr.onreadystatechange = function () {
-						var setting_modified;
-						if (xhr.readyState === 4) {
-							if (xhr.status === 200) {
-								setting_modified = xhr.responseText;
-								if (setting_modified == 'true') {
-									document.getElementById('menu_side_state_set_expanded').style.display = state == 'expanded' ? 'none' : 'block';
-									document.getElementById('menu_side_state_set_contracted').style.display = state == 'contracted' ? 'none' : 'block';
-									{/literal}
-									{if $menu_side_state == 'hidden'}
-										{literal}
-										document.getElementById('menu_side_state_hidden_button').style.display='none';
-										{/literal}
-									{/if}
-									{literal}
-									if (state == 'expanded') {
-										if ($(window).width() >= 576) {
-											$('#content_container').animate({ width: $(window).width() - {/literal}{$settings.theme.menu_side_width_expanded}{literal} }, 250);
-										}
-										else {
-											$('#menu_side_container').animate({ width: $(window).width() }, 180);
-										}
-										document.getElementById('menu_side_state_current').value = 'expanded';
-										display_message("{/literal}{$text.theme_message_menu_expanded}{literal}", 'positive', 1000);
-									}
-									else {
-										menu_side_contract();
-										if ($(window).width() >= 576) {
-											$('#content_container').animate({ width: $(window).width() - {/literal}{$settings.theme.menu_side_width_contracted}{literal} }, 250);
-										}
-										menu_side_state_current = 'contracted';
-										document.getElementById('menu_side_state_current').value = 'contracted';
-										display_message("{/literal}{$text.theme_message_menu_contracted}{literal}", 'positive', 1000);
-									}
-								}
-								else if (setting_modified == 'deleted') {
-									display_message("{/literal}{$text.theme_message_menu_reset}{literal}", 'positive', 1000);
-									document.location.reload();
-								}
+						{/literal}
+						{if $settings.theme.menu_side_item_main_sub_close != 'manual'}
+							{literal}
+							if (!$(this).is(':hidden')) {
+								$('.menu_side_sub').not($(this)).slideUp(180);
 							}
-						}
-					}
+							{/literal}
+						{/if}
+						{literal}
+					});
 				}
 				{/literal}
 		{/if}
@@ -279,19 +263,22 @@
 		//message bar hide on hover
 			{literal}
 			$('#message_container').on('mouseenter',function() {
+				$('#message_container').stop(true);
 				$('#message_container div').remove();
-				$('#message_container').css({opacity: 0, 'height': 0}).css({'height': 'auto'});
+				$('#message_container').css({'opacity': 1, 'height': 0});
 			});
 			{/literal}
 
 		//domain selector controls
 			{if $domain_selector_enabled}
 				{literal}
-				$('.domain_selector_domain').on('click', function() { show_domains(); });
-				$('#header_domain_selector_domain').on('click', function() { show_domains(); });
+				$('.header_domain_selector_domain').on('click', function() { event.preventDefault(); show_domains(); });
 				$('#domains_hide').on('click', function() { hide_domains(); });
 
 				function show_domains() {
+					$('#body_header_user_menu').fadeOut(200);
+					search_domains('domains_list');
+
 					$('#domains_visible').val(1);
 					var scrollbar_width = (window.innerWidth - $(window).width()); //gold: only solution that worked with body { overflow:auto } (add -ms-overflow-style: scrollbar; to <body> style for ie 10+)
 					if (scrollbar_width > 0) {
@@ -299,26 +286,34 @@
 						$('.navbar').css('margin-right',scrollbar_width); //adjust navbar margin to compensate
 						$('#domains_container').css('right',-scrollbar_width); //domain container right position to compensate
 					}
-					$(document).scrollTop(0);
 					$('#domains_container').show();
 					$('#domains_block').animate({marginRight: '+=300'}, 400, function() {
-						$('#domains_filter').trigger('focus');
+						$('#domains_search').trigger('focus');
 					});
 				}
 
 				function hide_domains() {
 					$('#domains_visible').val(0);
-					$(document).ready(function() {
-						$('#domains_block').animate({marginRight: '-=300'}, 400, function() {
-							$('#domains_filter').val('');
-							domain_search($('#domains_filter').val());
-							$('.navbar').css('margin-right','0'); //restore navbar margin
-							$('#domains_container').css('right','0'); //domain container right position
-							$('#domains_container').hide();
-							$('body').css({'margin-right':'0','overflow':'auto'}); //enable body scroll bars
-							document.activeElement.blur();
-						});
+					//stop queued/running animations so the cleanup below is deterministic
+					$('#domains_block').stop(true);
+					$('#domains_block').animate({marginRight: '-=300'}, 400, function() {
+						$('#domains_search').val('');
+						$('.navbar').css('margin-right','0'); //restore navbar margin
+						$('#domains_container').css('right','0'); //domain container right position
+						$('#domains_container').hide();
+						$('body').css({'margin-right':'0','overflow':'auto'}); //enable body scroll bars
+						try { document.activeElement.blur(); } catch (e) {}
 					});
+					//safety net: the overlay must never remain as an invisible
+					//full-height dead zone above the fixed menu (z-index 99990)
+					window.setTimeout(function() {
+						if ($('#domains_visible').val() == 0) {
+							$('.navbar').css('margin-right','0');
+							$('#domains_container').css('right','0');
+							$('#domains_container').hide();
+							$('body').css({'margin-right':'0','overflow':'auto'});
+						}
+					}, 800);
 				}
 				{/literal}
 			{/if}
@@ -359,7 +354,7 @@
 			{/if}
 
 		//common (used by delete and toggle)
-			{if $settings.theme.keyboard_shortcut_delete_enabled || $settings.theme.keyboard_shortcut_toggle_enabled}
+			{if !empty($settings.theme.keyboard_shortcut_delete_enabled) || !empty($settings.theme.keyboard_shortcut_toggle_enabled)}
 				var list_checkboxes;
 				list_checkboxes = document.querySelectorAll('table.list tr.list-row td.checkbox input[type=checkbox]');
 			{/if}
@@ -420,7 +415,7 @@
 					{/if}
 
 				//key: [delete], list: to delete checked, edit: to delete
-					{if $settings.theme.keyboard_shortcut_delete_enabled}
+					{if !empty($settings.theme.keyboard_shortcut_delete_enabled)}
 						{literal}
 						if (e.which == 46 && !(e.target.tagName == 'INPUT' && e.target.type == 'text') && e.target.tagName != 'TEXTAREA') {
 							e.preventDefault();
@@ -471,19 +466,19 @@
 				//key: [ctrl]+[a], list,edit: to check all
 					{if $settings.theme.keyboard_shortcut_check_all_enabled}
 						{literal}
-						if ((((e.which == 97 || e.which == 65) && (e.ctrlKey || e.metaKey) && !e.shiftKey) || e.which == 19) && !(e.target.tagName == 'INPUT' && e.target.type == 'text') && e.target.tagName != 'TEXTAREA') {
-							var all_checkboxes;
-							all_checkboxes = document.querySelectorAll('table.list tr.list-header th.checkbox input[name=checkbox_all]');
-							if (typeof all_checkboxes != 'object' || all_checkboxes.length == 0) {
-								all_checkboxes = document.querySelectorAll('td.edit_delete_checkbox_all > span > input[name=checkbox_all]');
-							}
-							if (typeof all_checkboxes == 'object' && all_checkboxes.length > 0) {
-								e.preventDefault();
-								for (var x = 0, max = all_checkboxes.length; x < max; x++) {
-									all_checkboxes[x].click();
-								}
-							}
-						}
+						// if ((((e.which == 97 || e.which == 65) && (e.ctrlKey || e.metaKey) && !e.shiftKey) || e.which == 19) && !(e.target.tagName == 'INPUT' && e.target.type == 'text') && e.target.tagName != 'TEXTAREA') {
+						// 	var all_checkboxes;
+						// 	all_checkboxes = document.querySelectorAll('table.list tr.list-header th.checkbox input[name=checkbox_all]');
+						// 	if (typeof all_checkboxes != 'object' || all_checkboxes.length == 0) {
+						// 		all_checkboxes = document.querySelectorAll('td.edit_delete_checkbox_all > span > input[name=checkbox_all]');
+						// 	}
+						// 	if (typeof all_checkboxes == 'object' && all_checkboxes.length > 0) {
+						// 		e.preventDefault();
+						// 		for (var x = 0, max = all_checkboxes.length; x < max; x++) {
+						// 			all_checkboxes[x].click();
+						// 		}
+						// 	}
+						// }
 						{/literal}
 
 					{/if}
@@ -504,7 +499,7 @@
 					{/if}
 
 				//key: [ctrl]+[c], list,edit: to copy
-					{if $settings.theme.keyboard_shortcut_copy_enabled}
+					{if $settings.theme.keyboard_shortcut_copy_enabled|default:false}
 						{if $browser_name_short == 'Safari'} //emulate with detecting [c] only, as [command] and [control] keys are ignored when captured
 							{literal}
 							if (
@@ -545,11 +540,28 @@
 						{/literal}
 					{/if}
 
+				//key: [left] / [right], audio playback: rewind / fast-forward
+					{literal}
+					if (
+						e.which == 39 &&
+						!(e.target.tagName == 'INPUT' && e.target.type == 'text') &&
+						e.target.tagName != 'TEXTAREA'
+						) {
+						recording_fast_forward();
+					}
+					if (
+						e.which == 37 &&
+						!(e.target.tagName == 'INPUT' && e.target.type == 'text') &&
+						e.target.tagName != 'TEXTAREA'
+						) {
+						recording_rewind();
+					}
+					{/literal}
+
 		//keydown end
 			{literal}
 			});
 			{/literal}
-
 
 		//link list rows
 			{literal}
@@ -573,29 +585,25 @@
 		//initialize bootstrap tempusdominus (calendar/datetime picker) plugin
 			{literal}
 			$(function() {
-				//set defaults
-					$.fn.datetimepicker.Constructor.Default = $.extend({}, $.fn.datetimepicker.Constructor.Default, {
-						buttons: {
-							showToday: true,
-							showClear: true,
-							showClose: true,
-						},
-						icons: {
-							time: 'fas fa-clock',
-							date: 'fas fa-calendar-alt',
-							up: 'fas fa-arrow-up',
-							down: 'fas fa-arrow-down',
-							previous: 'fas fa-chevron-left',
-							next: 'fas fa-chevron-right',
-							today: 'fas fa-calendar-check',
-							clear: 'fas fa-trash',
-							close: 'fas fa-times',
-						}
-					});
 				//define formatting of individual classes
 					$('.datepicker').datetimepicker({ format: 'YYYY-MM-DD', });
-					$('.datetimepicker').datetimepicker({ format: 'YYYY-MM-DD HH:mm', });
-					$('.datetimesecpicker').datetimepicker({ format: 'YYYY-MM-DD HH:mm:ss', });
+					{/literal}
+
+					{if !empty($time_format) && $time_format == '24h'}
+						{literal}
+						$(".datetimepicker").datetimepicker({ format: 'YYYY-MM-DD HH:mm', });
+						$(".datetimepicker-future").datetimepicker({ format: 'YYYY-MM-DD HH:mm', minDate: new Date(), });
+						$(".datetimesecpicker").datetimepicker({ format: 'YYYY-MM-DD HH:mm:ss', });
+						{/literal}
+					{else}
+						{literal}
+						$(".datetimepicker").datetimepicker({ format: 'YYYY-MM-DD hh:mm a', });
+						$(".datetimepicker-future").datetimepicker({ format: 'YYYY-MM-DD hh:mm a', minDate: new Date(), });
+						$(".datetimesecpicker").datetimepicker({ format: 'YYYY-MM-DD hh:mm:ss a', });
+						{/literal}
+					{/if}
+
+			{literal}
 			});
 			{/literal}
 
@@ -641,7 +649,7 @@
 			{/literal}
 
 		//crossfade menu brand images (if hover version set)
-			{if $settings.theme.menu_brand_image != '' && $settings.theme.menu_brand_image_hover != '' && $settings.theme.menu_style != 'side'}
+			{if !empty($settings.theme.menu_brand_image) && !empty($settings.theme.menu_brand_image_hover) && isset($settings.theme.menu_style) && $settings.theme.menu_style != 'side'}
 				{literal}
 				$(function(){
 					$('#menu_brand_image').on('mouseover',function(){
@@ -712,6 +720,712 @@
 				{/literal}
 			{/if}
 
+		//hide an open user menu in the body header or menu on scroll
+			{literal}
+			$(window).on('scroll', function() {
+				$('#body_header_user_menu').fadeOut(200);
+			});
+			$('div#main_content').on('click', function() {
+				$('#body_header_user_menu').fadeOut(200);
+			});
+			{/literal}
+
+		//create function to mimic toggling fade and slide at the same time
+			{literal}
+			(function($){
+				$.fn.toggleFadeSlide = function(speed = 200, easing, callback){
+					return this.animate({opacity: 'toggle', height: 'toggle'}, speed, easing, callback);
+				};
+			})(jQuery);
+			{/literal}
+
+		//slide toggle
+			{literal}
+			var switches = document.getElementsByClassName('switch');
+			var toggle = function(){
+				this.children[0].value = (this.children[0].value == 'false' ? 'true' : 'false');
+				this.children[0].dispatchEvent(new Event('change'));
+				};
+			for (var i = 0; i < switches.length; i++) {
+				switches[i].addEventListener('click', toggle, false);
+			}
+			{/literal}
+
+		// Searchable select box
+			{literal}
+			(function() {
+				const searchable_selects = document.querySelectorAll('.searchable_select');
+
+				searchable_selects.forEach(original_select => {
+					const wrapper = document.createElement('div');
+					wrapper.className = 'searchable_select_wrapper';
+					wrapper.id = original_select.id + '_search';
+					wrapper.style.display = getComputedStyle(original_select).display;
+					wrapper.style.width = getComputedStyle(original_select).width;
+					wrapper.style.marginRight = (parseInt(getComputedStyle(original_select).marginRight) * 2) + 'px';
+					wrapper.style.marginLeft = (parseInt(getComputedStyle(original_select).marginLeft) - 1) + 'px';
+
+					original_select.parentNode.insertBefore(wrapper, original_select);
+					original_select.style.display = 'none';
+
+					const input = document.createElement('input');
+					input.type = 'text';
+					input.className = 'formfld';
+					input.placeholder = original_select.querySelector('option').innerText ? original_select.querySelector('option').innerText : '{/literal}{$text.label_search}{literal}';
+					wrapper.appendChild(input);
+
+					const actions = document.createElement('div');
+					actions.className = 'actions';
+					wrapper.appendChild(actions);
+
+					actions.addEventListener('click', function(event) {
+						event.preventDefault();
+						event.stopPropagation();
+						const is_open = dropdown.style.display === 'block';
+
+						dropdown.style.display = is_open ? 'none' : 'block';
+
+						if (!is_open) {
+							input.focus();
+							render_items(input.value);
+						}
+					});
+
+					const arrow_icon = document.createElement('i');
+					arrow_icon.style = 'transform: scale(0.75, 0.80);';
+					arrow_icon.className = 'fa-solid fa-angle-down';
+					actions.appendChild(arrow_icon);
+
+					const clear_button = document.createElement('button');
+					clear_button.type = 'button';
+					clear_button.className = 'clear_search_button';
+					clear_button.innerHTML = '&times;';
+					clear_button.setAttribute('aria-label', 'Clear search');
+					actions.appendChild(clear_button);
+
+					const update_visibility = () => {
+						clear_button.style.display = input.value.trim() !== '' ? 'inline-flex' : 'none';
+						arrow_icon.style.display = input.value.trim() !== '' ? 'none' : 'inline-flex';
+					};
+
+					clear_button.addEventListener('click', function(event) {
+						event.preventDefault();
+						event.stopPropagation();
+
+						input.value = '';
+						original_select.value = '';
+
+						// Prevent form submission
+						if (original_select.hasAttribute('onchange')) {
+							const onchange_value = original_select.attributes.onchange.nodeValue;
+							original_select.attributes.onchange.nodeValue = onchange_value.replace('this.form.submit();', '');
+
+							original_select.dispatchEvent(new Event('change'));
+							original_select.attributes.onchange.nodeValue = onchange_value;
+						}
+						else {
+							original_select.dispatchEvent(new Event('change'));
+						}
+
+						update_visibility();
+						render_items();
+						input.focus();
+					});
+
+					const dropdown = document.createElement('div');
+					dropdown.className = 'search_results';
+					wrapper.appendChild(dropdown);
+
+					// Handle initial selection
+					if (original_select.value) {
+						const initial_option = original_select.querySelector(`option[value="${original_select.value}"]`);
+						if (initial_option) input.value = initial_option.label;
+					}
+					update_visibility();
+
+					function render_items(filter = '') {
+						dropdown.innerHTML = '';
+						const lower_filter = filter.toLowerCase();
+						let current_group = null;
+						let has_results = false;
+
+						original_select.querySelectorAll('option').forEach(option => {
+							let option_value = option.value;
+							let option_label = option.textContent.trim();
+							let option_group = option.parentNode?.tagName === 'OPTGROUP' ? option.parentNode.label : '';
+							const matches_label = option_label.toLowerCase().includes(lower_filter);
+							const matches_group = option_group.toLowerCase().includes(lower_filter);
+
+							if (matches_label || matches_group) {
+								has_results = true;
+								if (option_group && option_group !== current_group) {
+									current_group = option_group;
+									const group_title = document.createElement('div');
+									group_title.className = 'optgroup_header_row';
+									group_title.textContent = current_group;
+									dropdown.appendChild(group_title);
+								}
+
+								const item = document.createElement('div');
+								item.className = 'search_result_item';
+								if (original_select.value === option_value) item.classList.add('active');
+
+								item.dataset.value = option_value;
+								item.textContent = option_label;
+								item.style.paddingLeft = option_group ? '26px' : '';
+
+								dropdown.appendChild(item);
+							}
+						});
+
+						if (!has_results) {
+							const no_results = document.createElement('div');
+							no_results.className = 'no_results_message';
+							no_results.textContent = '{/literal}{$text.label_no_results}{literal}';
+							dropdown.appendChild(no_results);
+						}
+					}
+
+					function select_item(option) {
+						input.value = option.label;
+						original_select.value = option.value;
+						dropdown.style.display = 'none';
+						original_select.dispatchEvent(new Event('change'));
+						update_visibility();
+					}
+
+					input.addEventListener('input', (event) => {
+						const val = event.target.value;
+						const trimmed = val.trim();
+
+						if (trimmed === '') {
+							original_select.value = '';
+							original_select.dispatchEvent(new Event('change'));
+						}
+
+						render_items(val);
+						dropdown.style.display = 'block';
+						update_visibility();
+					});
+
+					input.addEventListener('focus', () => {
+						// Hide other dropdowns before showing the active one
+						document.querySelectorAll('.search_results').forEach(dropdown => { dropdown.style.display = 'none'; });
+						dropdown.style.display = 'block';
+						render_items(input.value);
+					});
+
+					// Event delegation for dropdown items
+					dropdown.addEventListener('click', (event) => {
+						const item = event.target.closest('.search_result_item');
+						if (item && !item.classList.contains('no_results_message')) {
+							const option_found = original_select.querySelector(`option[value="${item.dataset.value}"]`);
+							if (option_found) select_item(option_found);
+						}
+					});
+
+					// Initial render
+					render_items();
+				});
+
+				// Global outside-click handler
+				document.addEventListener('click', (event) => {
+					if (!event.target.closest('.searchable_select_wrapper')) {
+						document.querySelectorAll('.search_results').forEach(dropdown => {
+							dropdown.style.display = 'none';
+						});
+					}
+				});
+			})();
+			{/literal}
+
+		//domain select: searchable picker
+			{literal}
+			(function() {
+				var domain_cache = null;
+				var domain_cache_loading = false;
+				var domain_cache_callbacks = [];
+
+				function fetch_domains(callback) {
+					if (domain_cache !== null) {
+						callback(domain_cache);
+						return;
+					}
+					domain_cache_callbacks.push(callback);
+					if (domain_cache_loading) { return; }
+					domain_cache_loading = true;
+					var xhttp = new XMLHttpRequest();
+					xhttp.onreadystatechange = function() {
+						if (this.readyState === 4) {
+							var results = [];
+							if (this.status === 200) {
+								try { results = JSON.parse(this.responseText) || []; }
+								catch (error) { results = []; }
+							}
+							domain_cache = results;
+							domain_cache_loading = false;
+							while (domain_cache_callbacks.length) {
+								domain_cache_callbacks.shift()(domain_cache);
+							}
+						}
+					};
+					xhttp.open("GET", "/core/domains/domain_json.php?{/literal}{$domain_json_token_name}={$domain_json_token_hash}{literal}", true);
+					xhttp.send();
+				}
+
+				function init_domain_search_select(select) {
+					if (!select || select.dataset.domainSearchInit === 'true') { return; }
+					select.dataset.domainSearchInit = 'true';
+
+					var option_values = {};
+					var option_order = [];
+					var global_option = null;
+					for (var o = 0; o < select.options.length; o++) {
+						var option = select.options[o];
+						var option_text = (option.text || option.innerText || '').trim();
+						if (option.value === '') {
+							if (!option.disabled && option_text !== '') {
+								global_option = { domain_uuid: '', domain_name: option_text };
+							}
+							continue;
+						}
+						option_values[option.value] = option_text;
+						option_order.push(option.value);
+					}
+					if (option_order.length === 0) { return; }
+
+					var picker = document.createElement('div');
+					picker.className = 'domain-search-picker';
+					if (select.id) {
+						picker.id = select.id + '_domain_search_picker';
+					}
+
+					var input = document.createElement('input');
+					input.type = 'text';
+					input.className = 'formfld domain-search-input';
+					input.placeholder = '{/literal}{$text.label_search_domains}{literal}..';
+
+					var clear_button = document.createElement('button');
+					clear_button.type = 'button';
+					clear_button.className = 'domain-search-clear';
+					clear_button.innerHTML = '&times;';
+					clear_button.setAttribute('aria-label', 'Clear search');
+
+					var results = document.createElement('div');
+					results.className = 'domain-search-results'; 
+					results.setAttribute('role', 'listbox');
+					results.style.display = 'none';
+
+					picker.appendChild(input);
+					picker.appendChild(clear_button);
+					picker.appendChild(results);
+					select.parentNode.insertBefore(picker, select);
+
+					clear_button.addEventListener('click', function(e) {
+						e.preventDefault();
+						e.stopPropagation();
+						input.value = '';
+						active_index = -1;
+						clear_button.style.display = 'none';
+						render_results();
+						input.focus();
+					});
+
+					var dataset = [];
+					var active_index = -1;
+					var current_items = [];
+
+					function get_selected_label() {
+						if (select.selectedIndex > -1) {
+							var selected_option = select.options[select.selectedIndex];
+							if (selected_option && selected_option.value !== '') {
+								return selected_option.text || selected_option.innerText || '';
+							}
+							if (selected_option && selected_option.value === '' && selected_option.innerText == '{/literal}{$text.label_global}{literal}') {
+								return selected_option.text || selected_option.innerText || '';
+							}
+						}
+						return '';
+					}
+
+					function sync_input_to_select() {
+						input.value = get_selected_label();
+						clear_button.style.display = (input.value.trim() !== '') ? 'inline-flex' : 'none';
+					}
+
+					function close_results() {
+						active_index = -1;
+						results.style.display = 'none';
+						results.innerHTML = '';
+					}
+
+					function open_results() {
+						results.style.display = 'block';
+					}
+
+					function score_item(item, query) {
+						if (!query) { return 1; }
+						var score = 0;
+						var name = item.domain_name_lc;
+						var description = item.domain_description_lc;
+						if (name === query) { score += 1000; }
+						if (name.indexOf(query) === 0) { score += 500; }
+						else if (name.indexOf(query) > -1) { score += 300; }
+						if (description && description.indexOf(query) > -1) { score += 100; }
+						return score;
+					}
+
+					function render_results() {
+						var query = (input.value || '').toLowerCase().trim();
+						var matches = [];
+						if (global_option !== null) {
+							if (!query || global_option.domain_name.toLowerCase().indexOf(query) > -1) {
+								matches.push({
+									domain_uuid: '',
+									domain_name: global_option.domain_name,
+									domain_name_lc: global_option.domain_name.toLowerCase(),
+									domain_description: '',
+									domain_description_lc: '',
+									score: query ? 800 : 2
+								});
+							}
+						}
+						for (var i = 0; i < dataset.length; i++) {
+							var score = score_item(dataset[i], query);
+							if (score > 0) {
+								dataset[i].score = score;
+								matches.push(dataset[i]);
+							}
+						}
+
+						matches.sort(function(a, b) {
+							if (b.score !== a.score) { return b.score - a.score; }
+							return a.domain_name_lc.localeCompare(b.domain_name_lc);
+						});
+
+						current_items = matches.slice(0, 50);
+						results.innerHTML = '';
+						active_index = current_items.length > 0 ? 0 : -1;
+
+						if (current_items.length === 0) {
+							var empty = document.createElement('div');
+							empty.className = 'domain-search-empty';
+							empty.innerText = '{/literal}{$text.label_no_matching_domains}{literal}...';
+							results.appendChild(empty);
+							open_results();
+							return;
+						}
+
+						for (var r = 0; r < current_items.length; r++) {
+							var row = document.createElement('div');
+							row.className = 'domain-search-result-item' + (r === active_index ? ' active' : '');
+							row.setAttribute('data-index', r);
+							var name = document.createElement('span');
+							name.className = 'domain-search-result-name';
+							name.innerText = current_items[r].domain_name;
+							row.appendChild(name);
+							if (current_items[r].domain_description) {
+								var desc = document.createElement('span');
+								desc.className = 'domain-search-result-description';
+								desc.innerText = current_items[r].domain_description;
+								row.appendChild(desc);
+							}
+							results.appendChild(row);
+						}
+						// Toggle clear button visibility based on current input
+						clear_button.style.display = (input.value.trim() !== '') ? 'inline-flex' : 'none';
+
+						open_results();
+					}
+
+					function update_active_row() {
+						var rows = results.querySelectorAll('.domain-search-result-item');
+						for (var i = 0; i < rows.length; i++) {
+							rows[i].classList.toggle('active', i === active_index);
+						}
+					}
+
+					function select_value(domain_uuid) {
+						select.value = domain_uuid;
+						select.dispatchEvent(new Event('change', { bubbles: true }));
+						sync_input_to_select();
+						close_results();
+					}
+
+					results.addEventListener('mousedown', function(event) {
+						var row = event.target.closest('.domain-search-result-item');
+						if (!row) { return; }
+						event.preventDefault();
+						var index = parseInt(row.getAttribute('data-index'), 10);
+						if (!isNaN(index) && current_items[index]) {
+							select_value(current_items[index].domain_uuid);
+						}
+					});
+
+					input.addEventListener('focus', function() {
+						render_results();
+					});
+
+					input.addEventListener('input', function() {
+						render_results();
+					});
+
+					input.addEventListener('keydown', function(event) {
+						if (results.style.display !== 'block') {
+							if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+								render_results();
+								event.preventDefault();
+							}
+							return;
+						}
+						if (event.key === 'ArrowDown') {
+							if (active_index < current_items.length - 1) { active_index++; }
+							update_active_row();
+							event.preventDefault();
+						}
+						else if (event.key === 'ArrowUp') {
+							if (active_index > 0) { active_index--; }
+							update_active_row();
+							event.preventDefault();
+						}
+						else if (event.key === 'Enter') {
+							if (active_index > -1 && current_items[active_index]) {
+								select_value(current_items[active_index].domain_uuid);
+								event.preventDefault();
+							}
+						}
+						else if (event.key === 'Escape') {
+							close_results();
+						}
+					});
+
+					select.addEventListener('change', function() {
+						sync_input_to_select();
+					});
+
+					function sync_picker_visibility() {
+						var hide = window.getComputedStyle(select).display === 'none';
+						picker.style.display = hide ? 'none' : 'inline-block';
+						select.style.display = 'none';
+						if (hide) { close_results(); }
+					}
+					sync_picker_visibility();
+					select._domainSearchSyncVisibility = sync_picker_visibility;
+
+					document.addEventListener('mousedown', function(event) {
+						if (!picker.contains(event.target)) {
+							close_results();
+						}
+					});
+
+					fetch_domains(function(domains) {
+						var domains_by_uuid = {};
+						for (var i = 0; i < domains.length; i++) {
+							domains_by_uuid[domains[i].domain_uuid] = domains[i];
+						}
+						var longest_label = global_option !== null ? global_option.domain_name.length : 0;
+						for (var x = 0; x < option_order.length; x++) {
+							var domain_uuid = option_order[x];
+							var domain = domains_by_uuid[domain_uuid] || {};
+							var domain_name = (domain.domain_name || option_values[domain_uuid] || '').trim();
+							if (!domain_name) { continue; }
+							if (domain_name.length > longest_label) { longest_label = domain_name.length; }
+							var domain_description = (domain.domain_description || '').trim();
+							dataset.push({
+								domain_uuid: domain_uuid,
+								domain_name: domain_name,
+								domain_name_lc: domain_name.toLowerCase(),
+								domain_description: domain_description,
+								domain_description_lc: domain_description.toLowerCase(),
+								score: 0
+							});
+						}
+						var width_ch = Math.max(18, Math.min(longest_label + 2, 80));
+						input.style.width = width_ch + 'ch';
+						sync_input_to_select();
+					});
+				}
+
+				window.sync_domain_search_select_visibility = function(select_id) {
+					var select = document.getElementById(select_id);
+					if (select && typeof select._domainSearchSyncVisibility === 'function') {
+						select._domainSearchSyncVisibility();
+					}
+				};
+
+				window.init_domain_search_selects = function() {
+					var selectors = document.querySelectorAll("select[name='domain_uuid'], select[id='domain_uuid'], select[data-domain-search='true']");
+					for (var i = 0; i < selectors.length; i++) {
+						if (selectors[i].dataset.domainSearch === 'false') { continue; }
+						if (selectors[i].multiple) { continue; }
+						init_domain_search_select(selectors[i]);
+					}
+				};
+			})();
+
+			window.init_domain_search_selects();
+			{/literal}
+
+		// Multi select box with search
+			{literal}
+			(function() {
+				const container = document.querySelector('.multiselect_container');
+
+				if (container) {
+					const trigger_btn = container.querySelector('.selected_values');
+					const dropdown_list = container.querySelector('.dropdown_list');
+					const search_input = container.querySelector('.search_box');
+					const options_list = container.querySelector('.options_list');
+					const input_name = options_list.getAttribute('name');
+					const no_results = container.querySelector('#no_results');
+					const placeholder = container.querySelector('.placeholder_text');
+					let is_open = false;
+
+					// Toggle dropdown open/close
+					trigger_btn.addEventListener('click', (event) => {
+						event.stopPropagation();
+						is_open = !is_open;
+						if (is_open) {
+							dropdown_list.classList.add('open');
+							search_input.focus();
+						}
+						else {
+							dropdown_list.classList.remove('open');
+						}
+					});
+
+					// Close dropdown if clicked outside
+					document.addEventListener('click', (event) => {
+						if (!container.contains(event.target)) {
+							is_open = false;
+							dropdown_list.classList.remove('open');
+						}
+					});
+
+					// Prevent dropdown from closing when clicking inside the dropdown
+					dropdown_list.addEventListener('click', (event) => {
+						event.stopPropagation();
+					});
+
+					// Handle Search Filtering
+					search_input.addEventListener('input', (event) => {
+						const search_term = event.target.value.toLowerCase();
+						const option_items = document.querySelectorAll('.option_item');
+						let visible_count = 0;
+
+						option_items.forEach(item => {
+							const text = item.innerText.toLowerCase();
+
+							if (text.includes(search_term)) {
+								item.style.display = 'block';
+								visible_count++;
+							}
+							else {
+								item.style.display = 'none';
+							}
+						});
+
+						if (visible_count === 0) {
+							no_results.style.display = 'block';
+						}
+						else {
+							no_results.style.display = 'none';
+						}
+					});
+
+					// Handle checkbox selection
+					container.addEventListener('change', (event) => {
+						if (event.target.type === 'checkbox') {
+							// If unchecked, remove the corresponding hidden input
+							if (!event.target.checked) {
+								const value = event.target.value;
+								const hidden_input = document.querySelector(`input[name="${input_name}"][value="${value}"]`);
+								if (hidden_input) {
+									hidden_input.remove();
+								}
+							}
+
+							// Update visual tags and handle checked boxes
+							update_selected_values();
+						}
+					});
+
+					// Handle clicking the text part of the option
+					container.addEventListener('click', (event) => {
+						if (event.target.classList.contains('option_item')) {
+							const checkbox = event.target.querySelector('input[type="checkbox"]');
+							if (checkbox) {
+								checkbox.checked = !checkbox.checked;
+								update_selected_values();
+							}
+						}
+					});
+
+					// Update display logic (tags & hidden input)
+					function update_selected_values() {
+						const checked_boxes = document.querySelectorAll('.option_item input:checked');
+						const selected_count = checked_boxes.length;
+
+						// Update visual tags
+						if (selected_count === 0) {
+							placeholder.style.display = 'block';
+							trigger_btn.innerHTML = `<span class="placeholder_text">{/literal}{$text.label_select}{literal}...</span>`;
+							trigger_btn.innerHTML += `<i class='fa-solid fa-angle-down' style='position: absolute; right: 6px; transform: scale(0.70, 0.75);'></i>`;
+						}
+						else {
+							placeholder.style.display = 'none';
+							let html = '';
+
+							checked_boxes.forEach(box => {
+								const label = box.parentElement.innerText;
+
+								// Create a hidden input for each selected tag
+								create_hidden_input_for_tag(label, box.value);
+
+								html += `<span class="tag" data-value="${box.value}">`;
+								html += `	${label}`;
+								html += `	<span onclick="remove_option('${box.value}')">&times;</span>`;
+								html += `</span>`;
+							});
+
+							trigger_btn.innerHTML = html;
+						}
+					}
+
+					// Helper function to remove a tag when clicked (External to scope)
+					window.remove_option = function(value) {
+						const checkbox = document.querySelector(`input[value="${value}"]`);
+						if (checkbox) {
+							checkbox.checked = false;
+
+							// Remove the hidden input corresponding to this tag
+							const hidden_input = document.querySelector(`input[name="${input_name}"][value="${value}"]`);
+							if (hidden_input) {
+								hidden_input.remove();
+							}
+
+							update_selected_values();
+						}
+					};
+
+					// Function to create a hidden input for each selected tag
+					function create_hidden_input_for_tag(label, value) {
+						const existing_hidden_input = document.querySelector(`input[name="${input_name}"][value="${value}"]`);
+						if (!existing_hidden_input) {
+							const hidden_input = document.createElement('input');
+							hidden_input.type = 'hidden';
+							hidden_input.name = input_name;
+							hidden_input.value = value;
+							container.appendChild(hidden_input);
+						}
+					}
+
+					// Initialize state
+					update_selected_values();
+				}
+			})();
+			{/literal}
+
 	{literal}
 	}); //document ready end
 	{/literal}
@@ -719,24 +1433,67 @@
 
 	//audio playback functions
 		{literal}
-		var recording_audio, audio_clock;
+		var recording_audio, audio_clock, recording_id_playing, label_play;
 
-		function recording_play(recording_id) {
-			if (document.getElementById('recording_progress_bar_'+recording_id)) {
-				document.getElementById('recording_progress_bar_'+recording_id).style.display='';
+		function recording_load(player_id, data, audio_type) {
+			{/literal}
+			//create and load waveform image
+			{if $settings.theme.audio_player_waveform_enabled == 'true'}
+				{literal}
+				//list playback
+				if (document.getElementById('playback_progress_bar_background_' + player_id)) {
+					// alert("waveform.php?id=" + player_id + (data !== undefined ? '&data=' + data : '') + (audio_type !== undefined ? '&type=' + audio_type : ''));
+					document.getElementById('playback_progress_bar_background_' + player_id).style.backgroundImage = "linear-gradient(to bottom, rgba(0,0,0,0.10) 0%, transparent 20%), url('waveform.php?id=" + player_id + (data !== undefined ? '&data=' + data : '') + (audio_type !== undefined ? '&type=' + audio_type : '') + "')";
+				}
+				//form playback
+				else if (document.getElementById('recording_progress_bar_' + player_id)) {
+					// alert("waveform.php?id=" + player_id + (data !== undefined ? '&data=' + data : '') + (audio_type !== undefined ? '&type=' + audio_type : ''));
+					document.getElementById('recording_progress_bar_' + player_id).style.backgroundImage = "linear-gradient(to bottom, rgba(0,0,0,0.10) 0%, transparent 20%), url('waveform.php?id=" + player_id + (data !== undefined ? '&data=' + data : '') + (audio_type !== undefined ? '&type=' + audio_type : '') + "')";
+				}
+				{/literal}
+			{else}
+				{literal}
+				//list playback
+				if (document.getElementById('playback_progress_bar_background_' + player_id)) {
+					document.getElementById('playback_progress_bar_background_' + player_id).style.backgroundImage = "linear-gradient(to bottom, rgba(0,0,0,0.10) 0%, transparent 100%)";
+				}
+				//form playback
+				else if (document.getElementById('recording_progress_bar_' + player_id)) {
+					document.getElementById('recording_progress_bar_' + player_id).style.backgroundImage = "linear-gradient(to bottom, rgba(0,0,0,0.10) 0%, transparent 100%)";
+				}
+				{/literal}
+			{/if}
+			{literal}
+		}
+
+		function recording_play(player_id, data, audio_type, label) {
+			if (document.getElementById('recording_progress_bar_' + player_id)) {
+				document.getElementById('recording_progress_bar_' + player_id).style.display='';
 			}
-			recording_audio = document.getElementById('recording_audio_'+recording_id);
+			recording_audio = document.getElementById('recording_audio_' + player_id);
+
+			if (label !== undefined) {
+				label_play = "<span class='button-label pad'>" + label + "</span>";
+				var label_pause = "<span class='button-label pad'>" + label + "</span>";
+			}
+			else {
+				label_play = "{/literal}{if $php_self == 'xml_cdr_details.php'}{literal}<span class='button-label pad'>{/literal}{$text.label_play}{literal}</span>{/literal}{/if}{literal}";
+				var label_pause = "{/literal}{if $php_self == 'xml_cdr_details.php'}{literal}<span class='button-label pad'>{/literal}{$text.label_pause}{literal}</span>{/literal}{/if}{literal}";
+			}
 
 			if (recording_audio.paused) {
+				recording_load(player_id, data, audio_type);
 				recording_audio.volume = 1;
 				recording_audio.play();
-				document.getElementById('recording_button_'+recording_id).innerHTML = "<span class='{/literal}{$settings.theme.button_icon_pause}{literal} fa-fw'></span>";
-				audio_clock = setInterval(function () { update_progress(recording_id); }, 20);
+				recording_id_playing = player_id;
+				document.getElementById('recording_button_' + player_id).innerHTML = "<span class='{/literal}{$settings.theme.button_icon_pause}{literal} fa-fw'></span>" + (label_pause ?? '');
+				audio_clock = setInterval(function () { update_progress(player_id); }, 20);
 
-				$('[id*=recording_button]').not('[id*=recording_button_'+recording_id+']').html("<span class='{/literal}{$settings.theme.button_icon_play}{literal} fa-fw'></span>");
-				$('[id*=recording_progress_bar]').not('[id*=recording_progress_bar_'+recording_id+']').css('display', 'none');
+				$('[id*=recording_button]').not('[id*=recording_button_' + player_id + ']').html("<span class='{/literal}{$settings.theme.button_icon_play}{literal} fa-fw'></span>" + (label_play ?? ''));
+				$('[id*=recording_button_intro]').not('[id*=recording_button_' + player_id + ']').html("<span class='{/literal}{$settings.theme.button_icon_comment}{literal} fa-fw'></span>");
+				$('[id*=recording_progress_bar]').not('[id*=recording_progress_bar_' + player_id + ']').css('display', 'none');
 
-				$('audio').each(function(){$('#menu_side_container').width()
+				$('audio').each(function(){
 					if ($(this).get(0) != recording_audio) {
 						$(this).get(0).pause(); //stop playing
 						$(this).get(0).currentTime = 0; //reset time
@@ -745,45 +1502,93 @@
 			}
 			else {
 				recording_audio.pause();
-				document.getElementById('recording_button_'+recording_id).innerHTML = "<span class='{/literal}{$settings.theme.button_icon_play}{literal} fa-fw'></span>";
+				recording_id_playing = '';
+				if (player_id.substring(0,6) == 'intro_') {
+					document.getElementById('recording_button_' + player_id).innerHTML = "<span class='{/literal}{$settings.theme.button_icon_comment}{literal} fa-fw'></span>";
+				}
+				else {
+					document.getElementById('recording_button_' + player_id).innerHTML = "<span class='{/literal}{$settings.theme.button_icon_play}{literal} fa-fw'></span>" + (label_play ?? '');
+				}
 				clearInterval(audio_clock);
 			}
 		}
 
-		function recording_stop(recording_id) {
-			recording_reset(recording_id);
+		function recording_stop(player_id) {
+			recording_reset(player_id);
 			clearInterval(audio_clock);
 		}
 
-		function recording_reset(recording_id) {
-			recording_audio = document.getElementById('recording_audio_'+recording_id);
+		function recording_reset(player_id) {
+			recording_audio = document.getElementById('recording_audio_' + player_id);
 			recording_audio.pause();
 			recording_audio.currentTime = 0;
-			if (document.getElementById('recording_progress_bar_'+recording_id)) {
-				document.getElementById('recording_progress_bar_'+recording_id).style.display='none';
+			{/literal}
+			{if $php_self <> 'xml_cdr_details.php'}
+				{literal}
+				if (document.getElementById('recording_progress_bar_' + player_id)) {
+					document.getElementById('recording_progress_bar_' + player_id).style.display='none';
+				}
+				{/literal}
+			{/if}
+			{literal}
+			if (player_id.substring(0,6) == 'intro_') {
+				document.getElementById('recording_button_' + player_id).innerHTML = "<span class='{/literal}{$settings.theme.button_icon_comment}{literal} fa-fw'></span>";
 			}
-			document.getElementById('recording_button_'+recording_id).innerHTML = "<span class='{/literal}{$settings.theme.button_icon_play}{literal} fa-fw'></span>";
+			else {
+				document.getElementById('recording_button_' + player_id).innerHTML = "<span class='{/literal}{$settings.theme.button_icon_play}{literal} fa-fw'></span>" + (label_play ?? '');
+			}
 			clearInterval(audio_clock);
 		}
 
-		function update_progress(recording_id) {
-			recording_audio = document.getElementById('recording_audio_'+recording_id);
-			var recording_progress = document.getElementById('recording_progress_'+recording_id);
+		function update_progress(player_id) {
+			recording_audio = document.getElementById('recording_audio_' + player_id);
+			var recording_progress = document.getElementById('recording_progress_' + player_id);
 			var value = 0;
-			if (recording_audio.currentTime > 0) {
-				value = (100 / recording_audio.duration) * recording_audio.currentTime;
+			if (recording_audio != null && recording_audio.currentTime > 0) {
+				value = Number(((100 / recording_audio.duration) * recording_audio.currentTime).toFixed(1));
 			}
-			recording_progress.style.marginLeft = value + '%';
-			if (parseInt(recording_audio.duration) > 30) { //seconds
-				clearInterval(audio_clock);
+			if (recording_progress) {
+				recording_progress.style.marginLeft = value + '%';
+			}
+			// if (recording_audio != null && parseInt(recording_audio.duration) > 30) { //seconds
+			// 	clearInterval(audio_clock);
+			// }
+		}
+
+		function recording_fast_forward() {
+			if (recording_audio) {
+				recording_audio.currentTime += {/literal}{if !empty($settings.theme.audio_player_scrub_seconds) }{$settings.theme.audio_player_scrub_seconds}{else}2{/if}{literal};
+				update_progress(recording_id_playing);
 			}
 		}
+
+		function recording_rewind() {
+			if (recording_audio) {
+				recording_audio.currentTime -= {/literal}{if !empty($settings.theme.audio_player_scrub_seconds) }{$settings.theme.audio_player_scrub_seconds}{else}2{/if}{literal};
+				update_progress(recording_id_playing);
+			}
+		}
+
+		function recording_seek(event, player_id) {
+			if (recording_audio) {
+				if (document.getElementById('playback_progress_bar_background_' + player_id)) {
+					audio_player = document.getElementById('playback_progress_bar_background_' + player_id);
+				}
+				else if (document.getElementById('recording_progress_bar_' + player_id)) {
+					audio_player = document.getElementById('recording_progress_bar_' + player_id);
+				}
+				recording_audio.currentTime = (event.offsetX / audio_player.offsetWidth) * recording_audio.duration;
+				update_progress(recording_id_playing);
+				document.getElementById('recording_button_' + player_id).focus();
+			}
+		}
+
 		{/literal}
 
 	//handle action bar style on scroll
 		{literal}
 		window.addEventListener('scroll', function(){
-			action_bar_scroll('action_bar', 20);
+			action_bar_scroll('action_bar', {/literal}{if $settings.theme.menu_style == 'side'}60{else}20{/if}{literal});
 		}, false);
 		function action_bar_scroll(action_bar_id, scroll_position, function_sticky, function_inline) {
 			if (document.getElementById(action_bar_id)) {
@@ -797,6 +1602,42 @@
 						document.getElementById(action_bar_id).classList.remove('scroll');
 						if (typeof function_inline === 'function') { function_inline(); }
 					}
+			}
+		}
+		{/literal}
+
+	//handle action bar style on small screens
+		{literal}
+		window.addEventListener('load', function(){
+			action_bar_overflow();
+		}, false);
+		window.addEventListener('resize', function(){
+			action_bar_overflow();
+		}, false);
+		function action_bar_overflow() {
+			if (document.querySelector("#action_bar")) {
+				const action_bar = document.querySelector("#action_bar");
+				const actions = document.querySelector("#action_bar > .actions");
+				const paging_controls_mini = actions.querySelector(":scope > form#form_search > span:has(span > button)");
+
+				actions.style.cssText = '';
+				if (paging_controls_mini) {
+					paging_controls_mini.style.cssText = '';
+				}
+
+				//overflow detected
+				if (action_bar.offsetHeight > 60) {
+					actions.style.cssText = 'width: 100%; margin: 20px 0 0 0; position: relative; display: flex; row-gap: 5px; flex-wrap: wrap;';
+					if (paging_controls_mini) {
+						paging_controls_mini.style.cssText = 'position: absolute; top: -42px; right: 0;';
+					}
+				}
+				else {
+					actions.style.cssText = '';
+					if (paging_controls_mini) {
+						paging_controls_mini.style.cssText = '';
+					}
+				}
 			}
 		}
 		{/literal}
@@ -843,27 +1684,26 @@
 			btn_copy = document.getElementById("btn_copy");
 			btn_toggle = document.getElementById("btn_toggle");
 			btn_delete = document.getElementById("btn_delete");
+			btn_download = document.getElementById("btn_download");
+			btn_reload = document.getElementById("btn_reload");
+			btn_transcribe = document.getElementById("btn_transcribe");
+			any_revealed = document.getElementsByClassName('revealed');
 			if (checked == true) {
-				if (btn_copy) {
-					btn_copy.style.display = "inline";
-				}
-				if (btn_toggle) {
-					btn_toggle.style.display = "inline";
-				}
-				if (btn_delete) {
-					btn_delete.style.display = "inline";
-				}
+				if (btn_copy) { btn_copy.style.display = "inline"; }
+				if (btn_toggle) { btn_toggle.style.display = "inline"; }
+				if (btn_delete) { btn_delete.style.display = "inline"; }
+				if (btn_download) { btn_download.style.display = "inline"; }
+				if (btn_reload) { btn_reload.style.display = "inline"; }
+				if (btn_transcribe) { btn_transcribe.style.display = "inline"; }
+				if (any_revealed) { [...any_revealed].map(btn => btn.style.display = "inline"); }
 			}
 		 	else {
-				if (btn_copy) {
-					btn_copy.style.display = "none";
-				}
-				if (btn_toggle) {
-					btn_toggle.style.display = "none";
-				}
-				if (btn_delete) {
-					btn_delete.style.display = "none";
-				}
+				if (btn_copy) { btn_copy.style.display = "none"; }
+				if (btn_toggle) { btn_toggle.style.display = "none"; }
+				if (btn_delete) { btn_delete.style.display = "none"; }
+				if (btn_download) { btn_download.style.display = "none"; }
+				if (btn_transcribe) { btn_transcribe.style.display = "none"; }
+				if (any_revealed) { [...any_revealed].map(btn => btn.style.display = "none"); }
 		 	}
 		}
 		{/literal}
@@ -871,7 +1711,7 @@
 	//list page functions
 		{literal}
 		function list_all_toggle(modifier) {
-			var checkboxes = (modifier !== undefined) ? document.getElementsByClassName('checkbox_'+modifier) : document.querySelectorAll("input[type='checkbox']");
+			var checkboxes = (modifier !== undefined) ? document.getElementsByClassName('checkbox_'+modifier) : document.querySelectorAll("input[type='checkbox']:not([id*='_enabled'])");
 			var checkbox_checked = document.getElementById('checkbox_all' + (modifier !== undefined ? '_'+modifier : '')).checked;
 			for (var i = 0, max = checkboxes.length; i < max; i++) {
 				checkboxes[i].checked = checkbox_checked;
@@ -886,6 +1726,13 @@
 					document.getElementById('btn_check_none').style.display = 'none';
 				}
 			}
+			any_revealed = document.getElementsByClassName('revealed');
+			if (checkbox_checked == true) {
+				if (any_revealed) { [...any_revealed].map(btn => btn.style.display = "inline"); }
+			}
+		 	else {
+				if (any_revealed) { [...any_revealed].map(btn => btn.style.display = "none"); }
+		 	}
 		}
 
 		function list_all_check() {
@@ -899,12 +1746,12 @@
 		}
 
 		function list_self_check(checkbox_id) {
-			var inputs = document.getElementsByTagName('input');
-			for (var i = 0, max = inputs.length; i < max; i++) {
-				if (inputs[i].type === 'checkbox') {
-					inputs[i].checked = false;
-				}
-			}
+			//unchecks each selected checkbox
+			document.querySelectorAll('input[type="checkbox"]:not([name*="enabled"])').forEach(checkbox => {
+				checkbox.checked = false;
+			});
+
+			//select the checkbox with the specified id
 			document.getElementById(checkbox_id).checked = true;
 		}
 
@@ -977,6 +1824,40 @@
 			}
 			document.activeElement.blur();
 		}
+
+		function modal_display_selected(modal_id) {
+			const selected_items = [];
+			const modal_message_element = document.querySelector(`#${modal_id} .modal-message`);
+
+			if (!modal_message_element.hasAttribute('data-message')) {
+				modal_message_element.setAttribute('data-message', modal_message_element.innerHTML);
+				modal_message_element.style.cssText += 'max-height: 50vh; overflow: scroll;';
+			}
+			const message = modal_message_element.getAttribute('data-message');
+
+			document.querySelectorAll('input[type="checkbox"]:checked:not(#checkbox_all)').forEach(checkbox => {
+				selected_items.push({
+					name: checkbox.dataset.itemName,
+					domain: checkbox.dataset.itemDomain
+				});
+			});
+
+			if (selected_items.length > 0) {
+				content = message;
+				content += '<table style="margin: 20px 40px; min-width: 70%;">';
+				content += '	<tbody>';
+				selected_items.forEach(item => {
+					content += '	<tr>';
+					content += `		<td style="display: list-item;">${item.name}</td>`;
+					content += `		<td>${item.domain || ''}</td>`;
+					content += '	</tr>';
+				});
+				content += '	</tbody>';
+				content += '</table>';
+
+				modal_message_element.innerHTML = content;
+			}
+		}
 		{/literal}
 
 	//misc functions
@@ -1009,128 +1890,175 @@
 		{/literal}
 
 	{*//session timer *}
-		{$session_timer}
+		{if !empty($session_timer)}
+			{$session_timer}
+		{/if}
 
+	{*//domain selector *}
+	function search_domains(element_id) {
+		var xhttp = new XMLHttpRequest();
+		var obj, domain_uuid, domain_name, link_label;
+		xhttp.onreadystatechange = function() {
+			//if (this.readyState == 4 && this.status == 200) {
+			//	document.getElementById(element_id).innerHTML = this.responseText;
+			//}
+
+			//remove current options
+			document.getElementById(element_id).innerHTML = '';
+
+			if (this.readyState == 4 && this.status == 200) {
+
+				//create the json object from the response
+				obj = JSON.parse(this.responseText);
+
+				//update the domain count
+				document.getElementById('domain_count').innerText = obj.length;
+
+				//add new options from the json results
+				for (var i=0; i < obj.length; i++) {
+
+					//get the variables
+					domain_uuid = obj[i].domain_uuid;
+					domain_name = obj[i].domain_name;
+					if (obj[i].domain_description != null) {
+					//	domain_description = DOMPurify.sanitize(obj[i].domain_description);
+					}
+
+					//create a div element
+					var div = document.createElement('div');
+
+					//add a div title
+					div.title = obj[i].domain_name;
+
+					//add a css class
+					div.classList.add("domains_list_item");
+
+					//alternate the background color
+					if(i%2==0) {
+						div.style.background = '{$domain_selector_background_color_1}';
+					}
+					else {
+						div.style.background = '{$domain_selector_background_color_2}';
+					}
+
+					//set the active domain style
+					if ('{$domain_uuid}' == obj[i].domain_uuid) {
+						div.style.background = '{$domain_active_background_color}';
+						div.style.fontWeight = 'bold';
+						//div.classList.add("domains_list_item_active");
+						//var item_description_class = 'domain_active_list_item_description';
+					}
+					else {
+						//div.classList.add("domains_list_item_inactive");
+						//var item_description_class = 'domain_inactive_list_item_description';
+					}
+
+					//set link on domain div in list
+					div.setAttribute('onclick',"window.location.href='{$domains_app_path}?domain_uuid=" + obj[i].domain_uuid + "&domain_change=true';");
+
+					//define domain link text and description (if any)
+					link_label = obj[i].domain_name;
+					if (obj[i].domain_description != null) {
+						link_label += " <span class='domain_list_item_description' title=\"" + obj[i].domain_description + "\">" + obj[i].domain_description + "</span>";
+					}
+					var a_tag = document.createElement('a');
+					a_tag.setAttribute('href','manage:'+obj[i].domain_name);
+					a_tag.setAttribute('onclick','event.preventDefault();');
+					a_tag.innerHTML = link_label;
+					div.appendChild(a_tag);
+
+					document.getElementById(element_id).appendChild(div);
+				}
+			}
+		};
+		var search = document.getElementById('domains_search');
+		if (search.value) {
+			//xhttp.open("GET", "/core/domains/domain_list.php?search="+search.value, true);
+			xhttp.open("GET", "/core/domains/domain_json.php?search="+search.value+"&{$domain_json_token_name}={$domain_json_token_hash}", true);
+		}
+		else {
+			//xhttp.open("GET", "/core/domains/domain_list.php", true);
+			xhttp.open("GET", "/core/domains/domain_json.php?{$domain_json_token_name}={$domain_json_token_hash}", true);
+		}
+		xhttp.send();
+	}
+	{*//domain selector *}
 	</script>
 
 </head>
 <body>
 
+	{*//video background *}
+	{if !empty($background_video)}
+		<video id="background-video" autoplay muted poster="" disablePictureInPicture="true" onloadstart="this.playbackRate = 1; this.pause();">
+			<source src="{$background_video}" type="video/mp4">
+		</video>
+	{/if}
+
+	{*//image background *}
+	<div id='background-image'></div>
+
+	{*//color background *}
+	<div id='background-color'></div>
+
 	{*//message container *}
-		<div id='message_container'></div>
+	<div id='message_container'></div>
 
 	{*//domain selector *}
-		{if $authenticated && $domain_selector_enabled}
+	{if $authenticated && $domain_selector_enabled}
 
-			<div id='domains_container'>
-				<input type='hidden' id='domains_visible' value='0'>
-				<div id='domains_block'>
-					<div id='domains_header'>
-						<input id='domains_hide' type='button' class='btn' style='float: right' value="{$text.theme_button_close}">
-						<a id='domains_title' href='{$domains_app_path}'>{$text.theme_title_domains} <span style='font-size: 80%;'>({$domain_count})</span></a>
-						<br><br>
-						<input type='text' id='domains_filter' class='formfld' style='margin-left: 0; min-width: 100%; width: 100%;' placeholder="{$text.theme_label_search}" onkeyup='domain_search(this.value)'>
-					</div>
-					<div id='domains_list'>
-						{foreach $domains as $row}
-							{*//alternate background colors of inactive domains *}
-								{if $background_color == $domain_selector_background_color_1}
-									{$background_color=$domain_selector_background_color_2}
-								{else}
-									{$background_color=$domain_selector_background_color_1}
-								{/if}
-							{*//set active domain color *}
-								{if $domain_active_background_color != ''}
-									{if $row.domain_uuid == $domain_uuid}{$background_color=$domain_active_background_color}{/if}
-								{/if}
-							{*//active domain text hover color *}
-								{if $settings.theme.domain_active_text_color_hover != '' && $row.domain_uuid == $domain_uuid}
-									<div id='{$row.domain_name}' class='domains_list_item_active' style='background-color: {$background_color}' onclick="document.location.href='{$domains_app_path}?domain_uuid={$row.domain_uuid}&domain_change=true';">
-								{elseif $settings.theme.domain_inactive_text_color_hover != '' && $row.domain_uuid != $domain_uuid}
-									<div id='{$row.domain_name}' class='domains_list_item_inactive' style='background-color: {$background_color}' onclick="document.location.href='{$domains_app_path}?domain_uuid={$row.domain_uuid}&domain_change=true';">
-								{else}
-									<div id='{$row.domain_name}' class='domains_list_item' style='background-color: {$background_color}' onclick="document.location.href='{$domains_app_path}?domain_uuid={$row.domain_uuid}&domain_change=true';">
-								{/if}
-							{*//domain link *}
-								<a href='{$domains_app_path}?domain_uuid={$row.domain_uuid}&domain_change=true' {if $row.domain_uuid == $domain_uuid}style='font-weight: bold;'{/if}>{$row.domain_name}</a>
-							{*//domain description *}
-								{if $row.domain_description != ''}
-									{*//active domain description text color *}
-										{if $settings.theme.domain_active_desc_text_color != '' && $row.domain_uuid == $domain_uuid}
-											<span class='domain_active_list_item_description' title="{$row.domain_description}"> - {$row.domain_description}</span>
-									{*//inactive domains description text color *}
-										{elseif $settings.theme.domain_inactive_desc_text_color != '' && $row.domain_uuid != $domain_uuid}
-											<span class='domain_inactive_list_item_description' title="{$row.domain_description}"> - {$row.domain_description}</span>
-									{*//default domain description text color *}
-										{else}
-											<span class='domain_list_item_description' title="{$row.domain_description}"> - {$row.domain_description}</span>
-										{/if}
-								{/if}
-							</div>
-							{$ary_domain_names[]=$row.domain_name}
-							{$ary_domain_descs[]=$row.domain_description|replace:'"':'\"'}
-						{/foreach}
-					</div>
-
-					<script>
-						{literal}
-						var domain_names = new Array("{/literal}{'","'|implode:$ary_domain_names}{literal}");
-						var domain_descs = new Array("{/literal}{'","'|implode:$ary_domain_descs}{literal}");
-						function domain_search(criteria) {
-							for (var x = 0; x < domain_names.length; x++) {
-								if (domain_names[x].toLowerCase().match(criteria.toLowerCase()) || domain_descs[x].toLowerCase().match(criteria.toLowerCase())) {
-									document.getElementById(domain_names[x]).style.display = '';
-								}
-								else {
-									document.getElementById(domain_names[x]).style.display = 'none';
-								}
-							}
-						}
-						{/literal}
-					</script>
-
+		<div id='domains_container'>
+			<input type='hidden' id='domains_visible' value='0'>
+			<div id='domains_block'>
+				<div id='domains_header'>
+					<input id='domains_hide' type='button' class='btn' style='float: right' value="{$text.theme_button_close}">
+					<a id='domains_title' href='{$domains_app_path}'>{$text.theme_title_domains}<div class='count' id='domain_count' style='font-size: 80%;'></div></a>
+					<br><br>
+					<input type='text' id='domains_search' class='formfld' style='margin-left: 0; min-width: 100%; width: 100%;' placeholder="{$text.theme_label_search}" onkeyup="search_domains('domains_list');">
 				</div>
+				<div id='domains_list'></div>
 			</div>
-
-		{/if}
-
-	{*//qr code container for contacts *}
-		<div id='qr_code_container' style='display: none;' onclick='$(this).fadeOut(400);'>
-			<table cellpadding='0' cellspacing='0' border='0' width='100%' height='100%'><tr><td align='center' valign='middle'>
-				<span id='qr_code' onclick="$('#qr_code_container').fadeOut(400);"></span>
-			</td></tr></table>
 		</div>
 
+	{/if}
+
+	{*//qr code container for contacts *}
+	<div id='qr_code_container' style='display: none;' onclick='$(this).fadeOut(400);'>
+		<table cellpadding='0' cellspacing='0' border='0' width='100%' height='100%'><tr><td align='center' valign='middle'>
+			<span id='qr_code' onclick="$('#qr_code_container').fadeOut(400);"></span>
+		</td></tr></table>
+	</div>
+
 	{*//login page *}
-		{if $login_page}
-			<div id='default_login'>
-				<a href='{$project_path}/'><img id='login_logo' style='width: {$login_logo_width}; height: {$login_logo_height};' src='{$login_logo_source}'></a><br />
-				{$document_body}
-			</div>
-			<div id='footer_login'>
-				<span class='footer'>{$settings.theme.footer}</span>
-			</div>
+	{if !empty($login_page)}
+		<div id='default_login'>
+			<a href='{$project_path}/'><img id='login_logo' style='width: {$login_logo_width}; height: {$login_logo_height};' src='{$login_logo_source}'></a><br />
+			{$document_body}
+		</div>
+		<div id='footer_login'>
+			<span class='footer'>{$settings.theme.footer}</span>
+		</div>
 
 	{*//other pages *}
-		{else}
-			{if $settings.theme.menu_style == 'side' || $settings.theme.menu_style == 'inline' || $settings.theme.menu_style == 'static'}
-				{$container_open}
-				{if $settings.theme.menu_style == 'inline'}{$logo}{/if}
-				{$menu}
-				{if $settings.theme.menu_style == 'inline' || $settings.theme.menu_style == 'static'}<br />{/if}
-				{if $settings.theme.menu_style == 'side'}<input type='hidden' id='menu_side_state_current' value='{if $menu_side_state == 'hidden'}expanded{else}{$menu_side_state}{/if}'>{/if}
-			{else} {*//default: fixed *}
-				{$menu}
-				{$container_open}
-			{/if}
-			<div id='main_content'>
-				{$document_body}
-			</div>
-			<div id='footer'>
-				<span class='footer'>{$settings.theme.footer}</span>
-			</div>
-			{$container_close}
+	{else}
+		{if $settings.theme.menu_style == 'side' || $settings.theme.menu_style == 'inline' || $settings.theme.menu_style == 'static'}
+			{$container_open}
+			{if $settings.theme.menu_style == 'inline'}{$logo}{/if}
+			{$menu}
+			{if $settings.theme.menu_style == 'inline' || $settings.theme.menu_style == 'static'}<br />{/if}
+			{if $settings.theme.menu_style == 'side'}<input type='hidden' id='menu_side_state_current' value='{if $menu_side_state == 'hidden'}expanded{else}{$menu_side_state}{/if}'>{/if}
+		{else} {*//default: fixed *}
+			{$menu}
+			{$container_open}
 		{/if}
+		<div id='main_content'>
+			{$document_body}
+		</div>
+		<div id='footer'>
+			<span class='footer'>{$settings.theme.footer}</span>
+		</div>
+		{$container_close}
+	{/if}
 
 </body>
 </html>

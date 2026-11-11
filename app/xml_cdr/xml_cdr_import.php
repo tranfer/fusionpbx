@@ -17,35 +17,37 @@
 
 	The Initial Developer of the Original Code is
 	Mark J Crane <markjcrane@fusionpbx.com>
-	Portions created by the Initial Developer are Copyright (C) 2016
+	Portions created by the Initial Developer are Copyright (C) 2016-2026
 	the Initial Developer. All Rights Reserved.
 
 	Contributor(s):
 	Mark J Crane <markjcrane@fusionpbx.com>
 */
 
-//check the permission
-	if(defined('STDIN')) {
-		$document_root = str_replace("\\", "/", $_SERVER["PHP_SELF"]);
-		preg_match("/^(.*)\/app\/.*$/", $document_root, $matches);
-		$document_root = $matches[1];
-		set_include_path($document_root);
-		$_SERVER["DOCUMENT_ROOT"] = $document_root;
-		require_once "resources/require.php";
+// Disable the PHP SESSION
+$no_session = true;
+
+// Includes files
+require_once dirname(__DIR__, 2) . "/resources/require.php";
+
+// Set global variable(s)
+global $settings;
+
+// Check the domain cidr range 
+if (!empty($settings->get('cdr', 'cidr')) && !defined('STDIN')) {
+	if (!check_cidr($settings->get('cdr', 'cidr'), $_SERVER['REMOTE_ADDR'])) {
+		echo "access denied";
+		exit;
 	}
-	else {
-		include "root.php";
-		require_once "resources/require.php";
-		require_once "resources/pdo.php";
-	}
+}
 
-//increase limits
-	set_time_limit(3600);
-	ini_set('memory_limit', '256M');
-	ini_set("precision", 6);
+// Set ini settings
+set_time_limit(3600);
+ini_set('memory_limit', '256M');
+ini_set("precision", 6);
 
-//import from the file system
-	$cdr = new xml_cdr;
-	$cdr->read_files();
+// Import the call detail records from HTTP POST or file system
+$xml_cdr = new xml_cdr(["database" => $database, "settings" => $settings, "domain_uuid" => $domain_uuid]);
+$xml_cdr->post();
+$xml_cdr->read_files();
 
-?>

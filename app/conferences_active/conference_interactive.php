@@ -25,16 +25,12 @@
 	James Rose <james.o.rose@gmail.com>
 */
 
-//includes
-	require_once "root.php";
-	require_once "resources/require.php";
+//includes files
+	require_once dirname(__DIR__, 2) . "/resources/require.php";
 	require_once "resources/check_auth.php";
 
 //check permissions
-	if (permission_exists('conference_interactive_view')) {
-		//access granted
-	}
-	else {
+	if (!permission_exists('conference_interactive_view')) {
 		echo "access denied";
 		exit;
 	}
@@ -44,7 +40,7 @@
 	$text = $language->get();
 
 //get and prepare the conference name
-	$conference_name = check_str(trim($_REQUEST["c"]));
+	$conference_name = trim($_REQUEST["c"] ?? '');
 	$conference_display_name = str_replace("-", " ", $conference_name);
 	$conference_display_name = str_replace("_", " ", $conference_display_name);
 
@@ -84,9 +80,17 @@ function loadXmlHttp(url, id) {
 }
 
 loadXmlHttp.prototype.stateChanged=function () {
-if (this.xmlHttp.readyState == 4 && (this.xmlHttp.status == 200 || !/^http/.test(window.location.href)))
-	//this.el.innerHTML = this.xmlHttp.responseText;
-	document.getElementById('ajax_reponse').innerHTML = this.xmlHttp.responseText;
+	var url = new URL(this.xmlHttp.responseURL);
+	if (/login\.php$/.test(url.pathname)) {
+		// You are logged out. Stop refresh!
+		url.searchParams.set('path', '<?php echo $_SERVER['REQUEST_URI']; ?>');
+		window.location.href = url.href;
+		return;
+	}
+
+	if (this.xmlHttp.readyState == 4 && (this.xmlHttp.status == 200 || !/^http/.test(window.location.href)))
+		//this.el.innerHTML = this.xmlHttp.responseText;
+		document.getElementById('ajax_reponse').innerHTML = this.xmlHttp.responseText;
 
 	//link table rows (except the last - the list_control_icons cell) on a table with a class of 'tr_hover', according to the href attribute of the <tr> tag
 		$('.tr_hover tr,.list tr').each(function(i,e) {
@@ -123,7 +127,7 @@ function send_cmd(url) {
 	}
 	xmlhttp.open("GET",url,false);
 	xmlhttp.send(null);
-	document.getElementById('cmd_reponse').innerHTML=xmlhttp.responseText;
+	document.getElementById('cmd_response').innerHTML=xmlhttp.responseText;
 }
 
 var record_count = 0;

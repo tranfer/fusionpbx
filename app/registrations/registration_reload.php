@@ -24,16 +24,12 @@
 	Mark J Crane <markjcrane@fusionpbx.com>
 */
 
-//includes
-	include "root.php";
-	require_once "resources/require.php";
+//includes files
+	require_once dirname(__DIR__, 2) . "/resources/require.php";
 	require_once "resources/check_auth.php";
 
 //check permissions
-	if (permission_exists("registration_reload")) {
-		//access granted
-	}
-	else {
+	if (!permission_exists("registration_reload")) {
 		echo "access denied";
 		exit;
 	}
@@ -80,17 +76,25 @@
 	}
 
 	loadXmlHttp.prototype.stateChanged=function () {
-	if (this.xmlHttp.readyState == 4 && (this.xmlHttp.status == 200 || !/^http/.test(window.location.href)))
-		//this.el.innerHTML = this.xmlHttp.responseText;
-		document.getElementById('ajax_response').innerHTML = this.xmlHttp.responseText;
+		var url = new URL(this.xmlHttp.responseURL);
+		if (/login\.php$/.test(url.pathname)) {
+			// You are logged out. Stop refresh!
+			url.searchParams.set('path', '<?php echo escape($_SERVER['REQUEST_URI'] ?? ''); ?>');
+			window.location.href = url.href;
+			return;
+		}
+
+		if (this.xmlHttp.readyState == 4 && (this.xmlHttp.status == 200 || !/^http/.test(window.location.href)))
+			//this.el.innerHTML = this.xmlHttp.responseText;
+			document.getElementById('ajax_response').innerHTML = this.xmlHttp.responseText;
 	}
 
 	var requestTime = function() {
 		var url = 'registrations.php?reload&show=<?php echo escape($show); ?>';
 		new loadXmlHttp(url, 'ajax_response');
 		<?php
-		if (strlen($_SESSION["ajax_refresh_rate"]) == 0) { $_SESSION["ajax_refresh_rate"] = "1800"; }
-		echo "setInterval(function(){new loadXmlHttp(url, 'ajax_reponse');}, ".escape($_SESSION["ajax_refresh_rate"]).");";
+		if (empty($_SESSION["ajax_refresh_rate"])) { $_SESSION["ajax_refresh_rate"] = "1800"; }
+		echo "setInterval(function(){new loadXmlHttp(url, 'ajax_reponse');}, ".(int)$_SESSION["ajax_refresh_rate"].");";
 		?>
 	}
 

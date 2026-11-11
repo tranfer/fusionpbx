@@ -17,24 +17,20 @@
 
 	The Initial Developer of the Original Code is
 	Mark J Crane <markjcrane@fusionpbx.com>
-	Portions created by the Initial Developer are Copyright (C) 2008-2020
+	Portions created by the Initial Developer are Copyright (C) 2008-2026
 	the Initial Developer. All Rights Reserved.
 
 	Contributor(s):
 	Mark J Crane <markjcrane@fusionpbx.com>
 */
 
-//includes
-	require_once "root.php";
-	require_once "resources/require.php";
+//includes files
+	require_once dirname(__DIR__, 2) . "/resources/require.php";
 	require_once "resources/check_auth.php";
 	require_once "resources/paging.php";
 
 //check permissions
-	if (permission_exists('call_broadcast_view')) {
-		//access granted
-	}
-	else {
+	if (!permission_exists('call_broadcast_view')) {
 		echo "access denied";
 		exit;
 	}
@@ -43,15 +39,43 @@
 	$language = new text;
 	$text = $language->get();
 
+// Set variables from GET parameters
+	$page = is_numeric($_GET['page'] ?? '') ? $_GET['page'] : 0;
+	$order_by = preg_replace('#[^a-zA-Z0-9_\-]#', '', $_GET['order_by'] ?? '');
+	$order = ($_GET['order'] ?? '') === 'desc' ? 'desc' : 'asc';
+	$search = $_GET['search'] ?? '';
+	$show = $_GET['show'] ?? '';
+
+// Build the query string
+	$param = [];
+	if (!empty($page)) {
+		$param['page'] = $page;
+	}
+	if (!empty($_GET['order_by'])) {
+		$param['order_by'] = $order_by;
+	}
+	if (!empty($_GET['order'])) {
+		$param['order'] = $order;
+	}
+	if (!empty($search)) {
+		$param['search'] = $search;
+	}
+	if (!empty($show) && $show == 'all' && permission_exists('call_broadcast_all')) {
+		$param['show'] = $show;
+	}
+	$query_string = http_build_query($param);
+
+//set from session variables
+	$list_row_edit_button = $settings->get('theme', 'list_row_edit_button', false);
+
 //get posted data
-	if (is_array($_POST['call_broadcasts'])) {
+	if (!empty($_POST['call_broadcasts'])) {
 		$action = $_POST['action'];
-		$search = $_POST['search'];
 		$call_broadcasts = $_POST['call_broadcasts'];
 	}
 
 //process the http post data by action
-	if ($action != '' && is_array($call_broadcasts) && @sizeof($call_broadcasts) != 0) {
+	if (!empty($action) && is_array($call_broadcasts)) {
 		switch ($action) {
 			case 'copy':
 				if (permission_exists('call_broadcast_add')) {
@@ -67,17 +91,12 @@
 				break;
 		}
 
-		header('Location: call_broadcast.php'.($search != '' ? '?search='.urlencode($search) : null));
+		header('Location: call_broadcast.php'.($query_string ? '?'.$query_string : ''));
 		exit;
 	}
 
-//get the http get variables and set them to php variables
-	$order_by = $_GET["order_by"];
-	$order = $_GET["order"];
-
-//add the search term
-	$search = strtolower($_GET["search"]);
-	if (strlen($search) > 0) {
+//add the search string
+	if (!empty($search)) {
 		$sql_search = " (";
 		$sql_search .= "	lower(broadcast_name) like :search ";
 		$sql_search .= "	or lower(broadcast_description) like :search ";
@@ -85,34 +104,56 @@
 		$sql_search .= "	or lower(broadcast_caller_id_number) like :search ";
 		$sql_search .= "	or lower(broadcast_phone_numbers) like :search ";
 		$sql_search .= ") ";
-		$parameters['search'] = '%'.$search.'%';
+		$parameters['search'] = '%'.lower_case($search).'%';
 	}
 
 //get the count
 	$sql = "select count(*) from v_call_broadcasts ";
-	$sql .= "where domain_uuid = :domain_uuid ";
-	if (isset($sql_search)) {
-		$sql .= "and ".$sql_search;
+	$sql .= "where true ";
+	if (!empty($show) && $show == "all" && permission_exists('call_broadcast_all')) {
+		if (isset($sql_search)) {
+			$sql .= "and ".$sql_search;
+		}
 	}
-	$database = new database;
-	$parameters['domain_uuid'] = $_SESSION['domain_uuid'];
-	$num_rows = $database->select($sql, $parameters, 'column');
+	else {
+		$sql .= "and (domain_uuid = :domain_uuid or domain_uuid is null) ";
+		if (isset($sql_search)) {
+			$sql .= "and ".$sql_search;
+		}
+		$parameters['domain_uuid'] = $domain_uuid;
+	}
+	$num_rows = $database->select($sql, $parameters ?? null, 'column');
 
 //prepare the paging
-	$rows_per_page = ($_SESSION['domain']['paging']['numeric'] != '') ? $_SESSION['domain']['paging']['numeric'] : 50;
-	$param = "&search=".$search;
-	$page = $_GET['page'];
-	if (strlen($page) == 0) { $page = 0; $_GET['page'] = 0; }
-	list($paging_controls, $rows_per_page) = paging($num_rows, $param, $rows_per_page);
-	list($paging_controls_mini, $rows_per_page) = paging($num_rows, $param, $rows_per_page, true);
+	$rows_per_page = $settings->get('domain', 'paging', 50);
+	list($paging_controls, $rows_per_page) = paging($num_rows, $query_string, $rows_per_page);
+	list($paging_controls_mini, $rows_per_page) = paging($num_rows, $query_string, $rows_per_page, true);
 	$offset = $rows_per_page * $page;
 
 //get the call broadcasts
-	$sql = str_replace('count(*)','*', $sql);
-	$sql .= order_by($order_by, $order);
+	$sql = "select call_broadcast_uuid, domain_uuid, broadcast_name, ";
+	$sql .= "broadcast_description, broadcast_start_time, broadcast_timeout, ";
+	$sql .= "broadcast_concurrent_limit, recording_uuid, broadcast_caller_id_name, ";
+	$sql .= "broadcast_caller_id_number, broadcast_destination_type, broadcast_phone_numbers, ";
+	$sql .= "broadcast_avmd, broadcast_destination_data, broadcast_accountcode, broadcast_toll_allow, ";
+	$sql .= "update_date, insert_date ";
+	$sql .= "from v_call_broadcasts ";
+	$sql .= "where true ";
+	if (!empty($show) && $show == "all" && permission_exists('call_broadcast_all')) {
+		if (isset($sql_search)) {
+			$sql .= "and ".$sql_search;
+		}
+	}
+	else {
+		$sql .= "and (domain_uuid = :domain_uuid or domain_uuid is null) ";
+		if (isset($sql_search)) {
+			$sql .= "and ".$sql_search;
+		}
+		$parameters['domain_uuid'] = $domain_uuid;
+	}
+	$sql .= order_by($order_by, $order, 'broadcast_name', 'asc');
 	$sql .= limit_offset($rows_per_page, $offset);
-	$database = new database;
-	$result = $database->select($sql, $parameters, 'all');
+	$result = $database->select($sql, $parameters ?? null, 'all');
 	unset($sql, $parameters);
 
 //create token
@@ -125,23 +166,31 @@
 
 //show the content
 	echo "<div class='action_bar' id='action_bar'>\n";
-	echo "	<div class='heading'><b>".$text['title-call_broadcast']." (".$num_rows.")</b></div>\n";
+	echo "	<div class='heading'><b>".$text['title-call_broadcast']."</b><div class='count'>".number_format($num_rows)."</div></div>\n";
 	echo "	<div class='actions'>\n";
 	if (permission_exists('call_broadcast_add')) {
-		echo button::create(['type'=>'button','label'=>$text['button-add'],'icon'=>$_SESSION['theme']['button_icon_add'],'id'=>'btn_add','link'=>'call_broadcast_edit.php']);
+		echo button::create(['type'=>'button','label'=>$text['button-add'],'icon'=>$settings->get('theme', 'button_icon_add'),'id'=>'btn_add','link'=>'call_broadcast_edit.php']);
 	}
 	if (permission_exists('call_broadcast_add') && $result) {
-		echo button::create(['type'=>'button','label'=>$text['button-copy'],'icon'=>$_SESSION['theme']['button_icon_copy'],'name'=>'btn_copy','onclick'=>"modal_open('modal-copy','btn_copy');"]);
+		echo button::create(['type'=>'button','label'=>$text['button-copy'],'icon'=>$settings->get('theme', 'button_icon_copy'),'id'=>'btn_copy','name'=>'btn_copy','style'=>'display: none;','onclick'=>"modal_open('modal-copy','btn_copy');"]);
 	}
 	if (permission_exists('call_broadcast_delete') && $result) {
-		echo button::create(['type'=>'button','label'=>$text['button-delete'],'icon'=>$_SESSION['theme']['button_icon_delete'],'name'=>'btn_delete','onclick'=>"modal_open('modal-delete','btn_delete');"]);
+		echo button::create(['type'=>'button','label'=>$text['button-delete'],'icon'=>$settings->get('theme', 'button_icon_delete'),'id'=>'btn_delete','name'=>'btn_delete','style'=>'display: none;','onclick'=>"modal_open('modal-delete','btn_delete');"]);
 	}
-	echo 		"<form id='form_search' class='inline' method='get'>\n";
-	echo 		"<input type='text' class='txt list-search' name='search' id='search' value=\"".escape($search)."\" placeholder=\"".$text['label-search']."\" onkeydown='list_search_reset();'>";
-	echo button::create(['label'=>$text['button-search'],'icon'=>$_SESSION['theme']['button_icon_search'],'type'=>'submit','id'=>'btn_search','style'=>($search != '' ? 'display: none;' : null)]);
-	echo button::create(['label'=>$text['button-reset'],'icon'=>$_SESSION['theme']['button_icon_reset'],'type'=>'button','id'=>'btn_reset','link'=>'call_broadcast.php','style'=>($search == '' ? 'display: none;' : null)]);
+	echo "		<form id='form_search' class='inline' method='get'>\n";
+	foreach ($param as $key => $value) {
+		if (in_array($key, ['order_by', 'order', 'show'])) {
+			echo "		<input type='hidden' name='".escape($key)."' value='".escape($value)."'>\n";
+		}
+	}
+	if (permission_exists('call_broadcast_all') && (!isset($show) || $show != 'all')) {
+		echo button::create(['type'=>'button','label'=>$text['button-show_all'],'icon'=>$settings->get('theme', 'button_icon_all'),'link'=>'?show=all']);
+	}
+	echo "		<input type='text' class='txt list-search' name='search' id='search' value=\"".escape($search)."\" placeholder=\"".$text['label-search']."\" onkeydown=''>";
+	echo button::create(['label'=>$text['button-search'],'icon'=>$settings->get('theme', 'button_icon_search'),'type'=>'submit','id'=>'btn_search']);
+	//echo button::create(['label'=>$text['button-reset'],'icon'=>$settings->get('theme', 'button_icon_reset'),'type'=>'button','id'=>'btn_reset','link'=>'call_broadcast.php','style'=>($search == '' ? 'display: none;' : null)]);
 	if ($paging_controls_mini != '') {
-		echo 	"<span style='margin-left: 15px;'>".$paging_controls_mini."</span>";
+		echo "	<span style='margin-left: 15px;'>".$paging_controls_mini."</span>";
 	}
 	echo "		</form>\n";
 	echo "	</div>\n";
@@ -160,49 +209,78 @@
 
 	echo "<form id='form_list' method='post'>\n";
 	echo "<input type='hidden' id='action' name='action' value=''>\n";
-	echo "<input type='hidden' name='search' value=\"".escape($search)."\">\n";
 
+	echo "<div class='card'>\n";
 	echo "<table class='list'>\n";
 	echo "<tr class='list-header'>\n";
 	if (permission_exists('call_broadcast_add') || permission_exists('call_broadcast_delete')) {
 		echo "	<th class='checkbox'>\n";
-		echo "		<input type='checkbox' id='checkbox_all' name='checkbox_all' onclick='list_all_toggle();' ".($result ?: "style='visibility: hidden;'").">\n";
+		echo "		<input type='checkbox' id='checkbox_all' name='checkbox_all' onclick='list_all_toggle(); checkbox_on_change(this);' ".(!empty($result) ?: "style='visibility: hidden;'").">\n";
 		echo "	</th>\n";
 	}
-	echo th_order_by('broadcast_name', $text['label-name'], $order_by, $order);
-	echo th_order_by('broadcast_concurrent_limit', $text['label-concurrent-limit'], $order_by, $order);
-	echo th_order_by('broadcast_description', $text['label-description'], $order_by, $order);
-	if (permission_exists('call_broadcast_edit') && $_SESSION['theme']['list_row_edit_button']['boolean'] == 'true') {
+	if ($show == "all" && permission_exists('call_broadcast_all')) {
+		echo th_order_by('domain_name', $text['label-domain'], $order_by, $order, null, "class='shrink'", $query_string);
+	}
+	echo th_order_by('broadcast_name', $text['label-name'], $order_by, $order, null, null, $query_string);
+	echo th_order_by('broadcast_concurrent_limit', $text['label-concurrent-limit'], $order_by, $order, null, null, $query_string);
+	echo th_order_by('broadcast_start_time', $text['label-start_time'], $order_by, $order, null, null, $query_string);
+	echo th_order_by('broadcast_description', $text['label-description'], $order_by, $order, null, null, $query_string);
+	if (permission_exists('call_broadcast_edit') && $list_row_edit_button) {
 		echo "	<td class='action-button'>&nbsp;</td>\n";
 	}
 	echo "</tr>\n";
 
-	if (is_array($result) && @sizeof($result) != 0) {
+	if (!empty($result)) {
 		$x = 0;
 		foreach($result as $row) {
+			$list_row_url = '';
 			if (permission_exists('call_broadcast_edit')) {
-				$list_row_url = "call_broadcast_edit.php?id=".urlencode($row['call_broadcast_uuid']);
+				$list_row_url = "call_broadcast_edit.php?id=".urlencode($row['call_broadcast_uuid']).($query_string ? '&'.$query_string : '');
+				if ($row['domain_uuid'] != $_SESSION['domain_uuid'] && permission_exists('domain_select')) {
+					$list_row_url .= '&domain_uuid='.urlencode($row['domain_uuid']).'&domain_change=true';
+				}
 			}
 			echo "<tr class='list-row' href='".$list_row_url."'>\n";
 			if (permission_exists('call_broadcast_add') || permission_exists('call_broadcast_delete')) {
 				echo "	<td class='checkbox'>\n";
-				echo "		<input type='checkbox' name='call_broadcasts[$x][checked]' id='checkbox_".$x."' value='true' onclick=\"if (!this.checked) { document.getElementById('checkbox_all').checked = false; }\">\n";
+				echo "		<input type='checkbox' name='call_broadcasts[$x][checked]' id='checkbox_".$x."' value='true' onclick=\"checkbox_on_change(this); if (!this.checked) { document.getElementById('checkbox_all').checked = false; }\">\n";
 				echo "		<input type='hidden' name='call_broadcasts[$x][uuid]' value='".escape($row['call_broadcast_uuid'])."' />\n";
 				echo "	</td>\n";
 			}
+			if ($show == "all" && permission_exists('call_broadcast_all')) {
+				if (!empty($_SESSION['domains'][$row['domain_uuid']]['domain_name'])) {
+					$domain = $_SESSION['domains'][$row['domain_uuid']]['domain_name'];
+				}
+				else {
+					$domain = $text['label-global'];
+				}
+				echo "	<td>".escape($domain)."</td>\n";
+			}
 			echo "	<td>";
 			if (permission_exists('call_broadcast_edit')) {
-				echo "<a href='".$list_row_url."'>".escape($row['broadcast_name'])."</a>";
+				echo "<a href='".$list_row_url."'>".escape($row['broadcast_name'] ?? '')."</a>";
 			}
 			else {
 				echo escape($row['broadcast_name']);
 			}
 			echo "	</td>\n";
 			echo "	<td>".escape($row['broadcast_concurrent_limit'])."</td>\n";
+			//determine start date and time
+			$broadcast_start_time = '';
+			$broadcast_start_reference = !empty($row['update_date']) ? $row['update_date'] : $row['insert_date'];
+			if ($row['broadcast_start_time'] && $broadcast_start_reference) {
+				if ($settings->get('domain', 'time_format') == '24h') {
+					$broadcast_start_time = date('Y-m-d H:i', strtotime($broadcast_start_reference) + $row['broadcast_start_time']);
+				}
+				else {
+					$broadcast_start_time = date('Y-m-d h:i A', strtotime($broadcast_start_reference) + $row['broadcast_start_time']);
+				}
+			}
+			echo "	<td>".escape($broadcast_start_time)."</td>\n";
 			echo "	<td class='description overflow hide-xs'>".escape($row['broadcast_description'])."</td>\n";
-			if (permission_exists('call_broadcast_edit') && $_SESSION['theme']['list_row_edit_button']['boolean'] == 'true') {
+			if (permission_exists('call_broadcast_edit') && $list_row_edit_button) {
 				echo "	<td class='action-button'>";
-				echo button::create(['type'=>'button','title'=>$text['button-edit'],'icon'=>$_SESSION['theme']['button_icon_edit'],'link'=>$list_row_url]);
+				echo button::create(['type'=>'button','title'=>$text['button-edit'],'icon'=>$settings->get('theme', 'button_icon_edit'),'link'=>$list_row_url]);
 				echo "	</td>\n";
 			}
 			echo "</tr>\n";
@@ -212,6 +290,7 @@
 	unset($result);
 
 	echo "</table>\n";
+	echo "</div>\n";
 	echo "<br />\n";
 	echo "<div align='center'>".$paging_controls."</div>\n";
 

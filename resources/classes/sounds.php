@@ -2,41 +2,88 @@
 
 /**
  * sounds class
- *
- * @method string get
  */
 class sounds {
 
 	/**
-	* Called when the object is created
-	*/
+	 * Domain UUID set in the constructor. This can be passed in through the $settings_array associative array or set
+	 * in the session global array
+	 *
+	 * @var string
+	 */
 	public $domain_uuid;
 
 	/**
-	* Class constructor
-	*/
-	public function __construct() {
-
-	}
+	 * Additional public variables
+	 */
+	public $sound_types;
+	public $full_path;
 
 	/**
-	 * Called when there are no references to a particular object
-	 * unset the variables used in the class
+	 * Set in the constructor. Must be a database object and cannot be null.
+	 *
+	 * @var database Database Object
 	 */
-	public function __destruct() {
-		foreach ($this as $key => $value) {
-			unset($this->$key);
+	private $database;
+
+	/**
+	 * Settings object set in the constructor. Must be a settings object and cannot be null.
+	 *
+	 * @var settings Settings Object
+	 */
+	private $settings;
+
+	/**
+	 * Domain name set in the constructor. This can be passed in through the $settings_array associative array or set
+	 * in the session global array
+	 *
+	 * @var string
+	 */
+	private $domain_name;
+
+	/**
+	 * User UUID set in the constructor. This can be passed in through the $settings_array associative array or set in
+	 * the session global array
+	 *
+	 * @var string
+	 */
+	private $user_uuid;
+
+	/**
+	 * Constructor for the class.
+	 *
+	 * This method initializes the object with setting_array and session data.
+	 *
+	 * @param array $setting_array An optional array of settings to override default values. Defaults to [].
+	 */
+	public function __construct(array $setting_array = []) {
+
+		//set the domain details and the user UUID
+		$this->domain_uuid = $setting_array['domain_uuid'] ?? $_SESSION['domain_uuid'] ?? '';
+		$this->domain_name = $setting_array['domain_name'] ?? $_SESSION['domain_name'] ?? '';
+		$this->user_uuid = $setting_array['user_uuid'] ?? $_SESSION['user_uuid'] ?? '';
+
+		//set objects
+		$this->database = $setting_array['database'] ?? database::new();
+
+		//load the settings
+		if (empty($setting_array['settings'])) {
+			$this->settings = new settings(['database' => $this->database, 'domain_uuid' => $this->domain_uuid, 'user_uuid' => $this->user_uuid]);
+		} else {
+			$this->settings = $setting_array['settings'];
 		}
 	}
 
 	/**
-	 * Add a specific item in the cache
-	 * @var array $array
-	 * @var string $value	string to be cached
+	 * Retrieves a list of sound files based on the specified types.
+	 *
+	 * @return array A multidimensional array containing the sound files, where each sub-array has two keys: 'name' and
+	 *               'value'.
 	 */
 	public function get() {
 
 		//miscellaneous
+		if (empty($this->sound_types) || (is_array($this->sound_types) && in_array('miscellaneous', $this->sound_types))) {
 			$x = 0;
 			if (if_group("superadmin")) {
 				$array['miscellaneous'][$x]['name'] = "say";
@@ -45,61 +92,60 @@ class sounds {
 				$array['miscellaneous'][$x]['name'] = "tone_stream";
 				$array['miscellaneous'][$x]['value'] = "tone_stream:";
 			}
+		}
+
 		//recordings
-			if (file_exists($_SERVER["PROJECT_ROOT"]."/app/phrases/app_config.php")) {
-				$sql = "select recording_name, recording_filename from v_recordings ";
-				$sql .= "where domain_uuid = :domain_uuid ";
-				$sql .= "order by recording_name asc ";
-				$parameters['domain_uuid'] = $_SESSION["domain_uuid"];
-				$database = new database;
-				$recordings = $database->select($sql, $parameters, 'all');
-				if (is_array($recordings) && @sizeof($recordings) != 0) {
-					foreach ($recordings as &$row) {
-						$recording_name = $row["recording_name"];
-						$recording_filename = $row["recording_filename"];
-						$array['recordings'][$x]['name'] = $recording_name;
-						$array['recordings'][$x]['value'] = $recording_filename;
-						$x++;
-					}
+		if ((empty($this->sound_types) || (is_array($this->sound_types) && in_array('recordings', $this->sound_types))) && file_exists(dirname(__DIR__, 2) . "/app/recordings/app_config.php")) {
+			$sql = "select recording_name, recording_filename from v_recordings ";
+			$sql .= "where domain_uuid = :domain_uuid ";
+			$sql .= "order by recording_name asc ";
+			$parameters['domain_uuid'] = $_SESSION["domain_uuid"];
+			$recordings = $this->database->select($sql, $parameters, 'all');
+			if (is_array($recordings) && @sizeof($recordings) != 0) {
+				foreach ($recordings as $x => $row) {
+					$recording_name = $row["recording_name"];
+					$recording_filename = $row["recording_filename"];
+					$recording_path = !empty($this->full_path) && is_array($this->full_path) && in_array('recordings', $this->full_path) ? $this->settings->get('switch', 'recordings') . '/' . $this->domain_name . '/' : null;
+					$array['recordings'][$x]['name'] = $recording_name;
+					$array['recordings'][$x]['value'] = $recording_path . $recording_filename;
 				}
-				unset($sql, $parameters, $recordings, $row);
 			}
+			unset($sql, $parameters, $recordings, $row);
+		}
+
 		//phrases
-			if (file_exists($_SERVER["PROJECT_ROOT"]."/app/phrases/app_config.php")) {
-				$sql = "select * from v_phrases ";
-				$sql .= "where domain_uuid = :domain_uuid ";
-				$parameters['domain_uuid'] = $_SESSION["domain_uuid"];
-				$database = new database;
-				$phrases = $database->select($sql, $parameters, 'all');
-				if (is_array($phrases) && @sizeof($phrases) != 0) {
-					foreach ($phrases as &$row) {
-						$array['phrases'][$x]['name'] = "phrase:".$row["phrase_name"];
-						$array['phrases'][$x]['value'] = "phrase:".$row["phrase_uuid"];
-						$x++;
-					}
+		if ((empty($this->sound_types) || (is_array($this->sound_types) && in_array('phrases', $this->sound_types))) && file_exists(dirname(__DIR__, 2) . "/app/phrases/app_config.php")) {
+			$sql = "select * from v_phrases ";
+			$sql .= "where domain_uuid = :domain_uuid ";
+			$parameters['domain_uuid'] = $_SESSION["domain_uuid"];
+			$phrases = $this->database->select($sql, $parameters, 'all');
+			if (is_array($phrases) && @sizeof($phrases) != 0) {
+				foreach ($phrases as $x => $row) {
+					$array['phrases'][$x]['name'] = "phrase:" . $row["phrase_name"];
+					$array['phrases'][$x]['value'] = "phrase:" . $row["phrase_uuid"];
 				}
-				unset($sql, $parameters, $phrases, $row);
 			}
+			unset($sql, $parameters, $phrases, $row);
+		}
+
 		//sounds
-			if (file_exists($_SERVER["PROJECT_ROOT"]."/app/phrases/app_config.php")) {
-				$file = new file;
-				$sound_files = $file->sounds();
-				if (is_array($sound_files) && @sizeof($sound_files) != 0) {
-					foreach ($sound_files as $value) {
-						if (substr($value, 0, 71) == "\$\${sounds_dir}/\${default_language}/\${default_dialect}/\${default_voice}/") {
-							$value = substr($var, 71);
-						}
-						$array['sounds'][$x]['name'] = $value;
-						$array['sounds'][$x]['value'] = $value;
-						$x++;
+		if ((empty($this->sound_types) || (is_array($this->sound_types) && in_array('sounds', $this->sound_types))) && file_exists(dirname(__DIR__, 2) . "/app/phrases/app_config.php")) {
+			$file = new file;
+			$sound_files = $file->sounds();
+			if (is_array($sound_files) && @sizeof($sound_files) != 0) {
+				foreach ($sound_files as $x => $value) {
+					if (substr($value, 0, 71) == "\$\${sounds_dir}/\${default_language}/\${default_dialect}/\${default_voice}/") {
+						$value = substr($value, 71);
 					}
+					$array['sounds'][$x]['name'] = $value;
+					$array['sounds'][$x]['value'] = $value;
 				}
 			}
+		}
+
 		//send the results
-			return $array;
+		return $array ?? [];
 
 	}
 
 }
-
-?>

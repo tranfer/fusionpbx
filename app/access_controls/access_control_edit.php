@@ -17,20 +17,16 @@
 
 	The Initial Developer of the Original Code is
 	Mark J Crane <markjcrane@fusionpbx.com>
-	Portions created by the Initial Developer are Copyright (C) 2018 - 2020
+	Portions created by the Initial Developer are Copyright (C) 2018-2026
 	the Initial Developer. All Rights Reserved.
 */
 
-//includes
-	require_once "root.php";
-	require_once "resources/require.php";
+//includes files
+	require_once dirname(__DIR__, 2) . "/resources/require.php";
 	require_once "resources/check_auth.php";
 
 //check permissions
-	if (permission_exists('access_control_add') || permission_exists('access_control_edit')) {
-		//access granted
-	}
-	else {
+	if (!permission_exists('access_control_view')) {
 		echo "access denied";
 		exit;
 	}
@@ -39,14 +35,37 @@
 	$language = new text;
 	$text = $language->get();
 
+// Set variables from http GET parameters
+	$page = is_numeric($_GET['page'] ?? '') ? $_GET['page'] : 0;
+	$order_by = preg_replace('#[^a-zA-Z0-9_\-]#', '', $_GET['order_by'] ?? '');
+	$order = ($_GET['order'] ?? '') === 'desc' ? 'desc' : 'asc';
+	$search = $_GET['search'] ?? '';
+
+// Build the query string
+	$param = [];
+	if (!empty($page)) {
+		$param['page'] = $page;
+	}
+	if (!empty($_GET['order_by'])) {
+		$param['order_by'] = $order_by;
+	}
+	if (!empty($_GET['order'])) {
+		$param['order'] = $order;
+	}
+	if (!empty($search)) {
+		$param['search'] = $search;
+	}
+	$query_string = http_build_query($param);
+
 //action add or update
-	if (is_uuid($_REQUEST["id"])) {
+	if (!empty($_REQUEST["id"]) && is_uuid($_REQUEST["id"])) {
 		$action = "update";
 		$access_control_uuid = $_REQUEST["id"];
 		$id = $_REQUEST["id"];
 	}
 	else {
 		$action = "add";
+		$access_control_uuid = uuid();
 	}
 
 //get http post variables and set them to php variables
@@ -58,18 +77,32 @@
 	}
 
 //process the user data and save it to the database
-	if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
+	if (count($_POST) > 0 && empty($_POST["persistformvar"])) {
+
+		//check permissions
+			if (!(permission_exists('access_control_add') || permission_exists('access_control_edit'))) {
+				echo "access denied";
+				exit;
+			}
+
+		//enforce valid data
+			if ($access_control_name == 'providers' || $access_control_name == 'domains') {
+				$access_control_default = 'deny';
+			}
+			if ($access_control_default != 'allow' && $access_control_default != 'deny') {
+				$access_control_default = 'deny';
+			}
 
 		//validate the token
 			$token = new token;
 			if (!$token->validate($_SERVER['PHP_SELF'])) {
 				message::add($text['message-invalid_token'],'negative');
-				header('Location: access_controls.php');
+				header('Location: access_controls.php'.($query_string ? '?'.$query_string : ''));
 				exit;
 			}
 
 		//process the http post data by submitted action
-			if ($_POST['action'] != '' && strlen($_POST['action']) > 0) {
+			if (!empty($_POST['action'])) {
 
 				//prepare the array(s)
 				$x = 0;
@@ -85,20 +118,17 @@
 				switch ($_POST['action']) {
 					case 'copy':
 						if (permission_exists('access_control_add')) {
-							$obj = new database;
-							$obj->copy($array);
+							$database->copy($array);
 						}
 						break;
 					case 'delete':
 						if (permission_exists('access_control_delete')) {
-							$obj = new database;
-							$obj->delete($array);
+							$database->delete($array);
 						}
 						break;
 					case 'toggle':
 						if (permission_exists('access_control_update')) {
-							$obj = new database;
-							$obj->toggle($array);
+							$database->toggle($array);
 						}
 						break;
 				}
@@ -110,24 +140,21 @@
 					$cache->delete("configuration:acl.conf");
 
 					//create the event socket connection
-					$fp = event_socket_create($_SESSION['event_socket_ip_address'], $_SESSION['event_socket_port'], $_SESSION['event_socket_password']);
-					if ($fp) {
-						event_socket_request($fp, "api reloadacl");
-					}
+					event_socket::api("reloadacl");
 
 					//redirect the user
-					header('Location: access_control_edit.php?id='.$id);
+					header('Location: access_control_edit.php?id='.$id.($query_string ? '&'.$query_string : ''));
 					exit;
 				}
 			}
 
 		//check for all required data
 			$msg = '';
-			if (strlen($access_control_name) == 0) { $msg .= $text['message-required']." ".$text['label-access_control_name']."<br>\n"; }
-			if (strlen($access_control_default) == 0) { $msg .= $text['message-required']." ".$text['label-access_control_default']."<br>\n"; }
-			//if (strlen($access_control_nodes) == 0) { $msg .= $text['message-required']." ".$text['label-access_control_nodes']."<br>\n"; }
-			//if (strlen($access_control_description) == 0) { $msg .= $text['message-required']." ".$text['label-access_control_description']."<br>\n"; }
-			if (strlen($msg) > 0 && strlen($_POST["persistformvar"]) == 0) {
+			if (empty($access_control_name)) { $msg .= $text['message-required']." ".$text['label-access_control_name']."<br>\n"; }
+			if (empty($access_control_default)) { $msg .= $text['message-required']." ".$text['label-access_control_default']."<br>\n"; }
+			//if (empty($access_control_nodes)) { $msg .= $text['message-required']." ".$text['label-access_control_nodes']."<br>\n"; }
+			//if (empty($access_control_description)) { $msg .= $text['message-required']." ".$text['label-access_control_description']."<br>\n"; }
+			if (!empty($msg) && empty($_POST["persistformvar"])) {
 				require_once "resources/header.php";
 				require_once "resources/persist_form_var.php";
 				echo "<div align='center'>\n";
@@ -140,45 +167,93 @@
 				return;
 			}
 
-		//add the access_control_uuid
-			if (!is_uuid($_POST["access_control_uuid"])) {
-				$access_control_uuid = uuid();
-			}
-
 		//prepare the array
 			$array['access_controls'][0]['access_control_uuid'] = $access_control_uuid;
 			$array['access_controls'][0]['access_control_name'] = $access_control_name;
 			$array['access_controls'][0]['access_control_default'] = $access_control_default;
 			$array['access_controls'][0]['access_control_description'] = $access_control_description;
 			$y = 0;
-			if (is_array($access_control_nodes)) {
+			if (!empty($access_control_nodes) && is_array($access_control_nodes)) {
 				foreach ($access_control_nodes as $row) {
-					if (strlen($row['node_type']) > 0) {
-						$array['access_controls'][0]['access_control_nodes'][$y]['access_control_node_uuid'] = $row["access_control_node_uuid"];
-						$array['access_controls'][0]['access_control_nodes'][$y]['node_type'] = $row["node_type"];
-						$array['access_controls'][0]['access_control_nodes'][$y]['node_cidr'] = $row["node_cidr"];
-						$array['access_controls'][0]['access_control_nodes'][$y]['node_domain'] = $row["node_domain"];
-						$array['access_controls'][0]['access_control_nodes'][$y]['node_description'] = $row["node_description"];
-						$y++;
+					//validate the data
+					if (!is_uuid($row["access_control_node_uuid"])) { continue; }
+					if ($row["node_type"] != 'allow' && $row["node_type"] != 'deny') { continue; }
+					if (isset($row["node_cidr"]) && $row["node_cidr"] != '') {
+						$cidr_array = explode("/", str_replace("\\", "/", $row["node_cidr"]));
+						if (filter_var($cidr_array[0], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+							if (isset($cidr_array[1]) && ctype_digit($cidr_array[1]) && (int) $cidr_array[1] <= 32) {
+								//valid IPv4 address and cidr notation
+								$node_cidr = $row["node_cidr"];
+							}
+							else {
+								//valid IPv4 address add the missing cidr notation
+								$node_cidr = $cidr_array[0].'/32';
+							}
+						}
+						else if(filter_var($cidr_array[0], FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+							//valid IPv6 address
+							$node_cidr = $row["node_cidr"];
+						}
+						else {
+							//domains hostname to lookup
+							$domains[] = [
+								'type'=>$row['node_type'],
+								'value'=>$row['node_cidr'],
+								'description'=>$row['node_description'],
+							];
+						}
+
+						//build the sub array
+						if (!empty($node_cidr)) {
+							$array['access_controls'][0]['access_control_nodes'][$y]['access_control_node_uuid'] = $row["access_control_node_uuid"];
+							$array['access_controls'][0]['access_control_nodes'][$y]['node_type'] = $row["node_type"];
+							$array['access_controls'][0]['access_control_nodes'][$y]['node_cidr'] = $node_cidr;
+							$array['access_controls'][0]['access_control_nodes'][$y]['node_description'] = $row["node_description"];
+							$y++;
+
+							//unset values
+							unset($cidr_array, $node_cidr);
+						}
+					}
+				}
+
+				//use a domain lookup to find all IP addresses for a domain, add those to access control nodes array while preventing duplicates
+				if (!empty($domains) && is_array($domains)) {
+					foreach ($domains as $row) {
+						$ip_addresses = gethostbynamel($row['value']);
+						if (!empty($ip_addresses)) {
+							foreach ($ip_addresses as $ip_address) {
+								if (!empty($ip_address) && filter_var($ip_address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+									//check for duplicate
+									if (!empty($array['access_controls'][0]['access_control_nodes']) && is_array($array['access_controls'][0]['access_control_nodes'])) {
+										foreach ($array['access_controls'][0]['access_control_nodes'] as $n => $node) {
+											if ($node['node_cidr'] == $ip_address.'/32') { continue 2; }
+										}
+									}
+									//add to array
+									$array['access_controls'][0]['access_control_nodes'][$y]['access_control_node_uuid'] = uuid();
+									$array['access_controls'][0]['access_control_nodes'][$y]['node_type'] = $row['type'];
+									$array['access_controls'][0]['access_control_nodes'][$y]['node_cidr'] = $ip_address.'/32';
+									$array['access_controls'][0]['access_control_nodes'][$y]['node_description'] = !empty($row['description']) ? $row['description'] : str_replace(' ', '', $row['value']);
+									$y++;
+								}
+							}
+						}
 					}
 				}
 			}
 
 		//save the data
-			$database = new database;
-			$database->app_name = 'access controls';
-			$database->app_uuid = '1416a250-f6e1-4edc-91a6-5c9b883638fd';
-			$database->save($array);
+			if (is_array($array)) {
+				$database->save($array);
+			}
 
 		//clear the cache
 			$cache = new cache;
 			$cache->delete("configuration:acl.conf");
 
 		//create the event socket connection
-			$fp = event_socket_create($_SESSION['event_socket_ip_address'], $_SESSION['event_socket_port'], $_SESSION['event_socket_password']);
-			if ($fp) {
-				event_socket_request($fp, "api reloadacl");
-			}
+			event_socket::async("reloadacl");
 
 		//redirect the user
 			if (isset($action)) {
@@ -189,19 +264,24 @@
 					$_SESSION["message"] = $text['message-update'];
 				}
 				//header('Location: access_controls.php');
-				header('Location: access_control_edit.php?id='.urlencode($access_control_uuid));
+				header('Location: access_control_edit.php?id='.urlencode($access_control_uuid).($query_string ? '&'.$query_string : ''));
 				return;
 			}
 	}
 
+//set default values
+	$access_control_name = '';
+	$access_control_default = '';
+	$access_control_description = '';
+
 //pre-populate the form
-	if (is_array($_GET) && $_POST["persistformvar"] != "true") {
+	if (!empty($access_control_uuid) && is_uuid($access_control_uuid) && empty($_POST["persistformvar"])) {
 		$sql = "select * from v_access_controls ";
 		$sql .= "where access_control_uuid = :access_control_uuid ";
 		$parameters['access_control_uuid'] = $access_control_uuid;
-		$database = new database;
+
 		$row = $database->select($sql, $parameters, 'row');
-		if (is_array($row) && @sizeof($row) != 0) {
+		if (!empty($row) && count($row) > 0) {
 			$access_control_name = $row["access_control_name"];
 			$access_control_default = $row["access_control_default"];
 			$access_control_description = $row["access_control_description"];
@@ -210,34 +290,32 @@
 	}
 
 //get the child data
-	if (is_uuid($access_control_uuid)) {
+	if (!empty($access_control_uuid) && is_uuid($access_control_uuid)) {
 		$sql = "select * from v_access_control_nodes ";
 		$sql .= "where access_control_uuid = :access_control_uuid ";
 		$sql .= "order by node_cidr asc";
 		$parameters['access_control_uuid'] = $access_control_uuid;
-		$database = new database;
 		$access_control_nodes = $database->select($sql, $parameters, 'all');
 		unset ($sql, $parameters);
 	}
 
 //add the $access_control_node_uuid
-	if (!is_uuid($access_control_node_uuid)) {
+	if (empty($access_control_node_uuid)) {
 		$access_control_node_uuid = uuid();
 	}
 
 //add an empty row
-	if (is_array($access_control_nodes) && @sizeof($access_control_nodes) != 0) {
+	if (!empty($access_control_nodes) && count($access_control_nodes) > 0) {
 		$x = count($access_control_nodes);
 	}
 	else {
 		$access_control_nodes = array();
 		$x = 0;
 	}
-	$access_control_nodes[$x]['access_control_uuid'] = $access_control_uuid;
+	$access_control_nodes[$x]['access_control_uuid'] = $access_control_uuid ?? '';
 	$access_control_nodes[$x]['access_control_node_uuid'] = uuid();
 	$access_control_nodes[$x]['node_type'] = '';
 	$access_control_nodes[$x]['node_cidr'] = '';
-	$access_control_nodes[$x]['node_domain'] = '';
 	$access_control_nodes[$x]['node_description'] = '';
 
 //create token
@@ -255,16 +333,24 @@
 	echo "<div class='action_bar' id='action_bar'>\n";
 	echo "	<div class='heading'><b>".$text['title-access_control']."</b></div>\n";
 	echo "	<div class='actions'>\n";
-	echo button::create(['type'=>'button','label'=>$text['button-back'],'icon'=>$_SESSION['theme']['button_icon_back'],'id'=>'btn_back','collapse'=>'hide-xs','style'=>'margin-right: 15px;','link'=>'access_controls.php']);
+	echo button::create(['type'=>'button','label'=>$text['button-back'],'icon'=>$settings->get('theme', 'button_icon_back'),'id'=>'btn_back','collapse'=>'hide-xs','style'=>'margin-right: 15px;','link'=>'access_controls.php'.($query_string ? '?'.$query_string : '')]);
 	if ($action == 'update') {
 		if (permission_exists('access_control_node_add')) {
-			echo button::create(['type'=>'button','label'=>$text['button-copy'],'icon'=>$_SESSION['theme']['button_icon_copy'],'id'=>'btn_copy','name'=>'btn_copy','style'=>'display: none;','onclick'=>"modal_open('modal-copy','btn_copy');"]);
+			echo button::create(['type'=>'button','label'=>$text['button-import'],'icon'=>$settings->get('theme', 'button_icon_import'),'style'=>'margin-right: 3px;','link'=>'access_control_import.php?id='.escape($access_control_uuid)]);
+		}
+		if (permission_exists('access_control_node_view')) {
+			echo button::create(['type'=>'button','label'=>$text['button-export'],'icon'=>$settings->get('theme', 'button_icon_export'),'style'=>'margin-right: 3px;','link'=>'access_control_export.php?id='.escape($access_control_uuid)]);
+		}
+		if (permission_exists('access_control_node_add')) {
+			echo button::create(['type'=>'button','label'=>$text['button-copy'],'icon'=>$settings->get('theme', 'button_icon_copy'),'id'=>'btn_copy','name'=>'btn_copy','style'=>'display: none;','onclick'=>"modal_open('modal-copy','btn_copy');"]);
 		}
 		if (permission_exists('access_control_node_delete')) {
-			echo button::create(['type'=>'button','label'=>$text['button-delete'],'icon'=>$_SESSION['theme']['button_icon_delete'],'id'=>'btn_delete','name'=>'btn_delete','style'=>'display: none; margin-right: 15px;','onclick'=>"modal_open('modal-delete','btn_delete');"]);
+			echo button::create(['type'=>'button','label'=>$text['button-delete'],'icon'=>$settings->get('theme', 'button_icon_delete'),'id'=>'btn_delete','name'=>'btn_delete','style'=>'display: none; margin-right: 15px;','onclick'=>"modal_open('modal-delete','btn_delete');"]);
 		}
 	}
-	echo button::create(['type'=>'submit','label'=>$text['button-save'],'icon'=>$_SESSION['theme']['button_icon_save'],'id'=>'btn_save','collapse'=>'hide-xs']);
+	if (permission_exists('access_control_add') || permission_exists('access_control_edit')) {
+		echo button::create(['type'=>'submit','label'=>$text['button-save'],'icon'=>$settings->get('theme', 'button_icon_save'),'id'=>'btn_save','collapse'=>'hide-xs']);
+	}
 	echo "	</div>\n";
 	echo "	<div style='clear: both;'></div>\n";
 	echo "</div>\n";
@@ -290,6 +376,7 @@
 		}
 	}
 
+	echo "<div class='card'>\n";
 	echo "<table width='100%' border='0' cellpadding='0' cellspacing='0'>\n";
 
 	echo "<tr>\n";
@@ -337,7 +424,6 @@
 	echo "		<tr>\n";
 	echo "			<th class='vtablereq'>".$text['label-node_type']."</th>\n";
 	echo "			<td class='vtable'>".$text['label-node_cidr']."</td>\n";
-	echo "			<td class='vtable'>".$text['label-node_domain']."</td>\n";
 	echo "			<td class='vtable'>".$text['label-node_description']."</td>\n";
 	if (is_array($access_control_nodes) && @sizeof($access_control_nodes) > 1 && permission_exists('access_control_node_delete')) {
 		echo "			<td class='vtable edit_delete_checkbox_all' onmouseover=\"swap_display('delete_label_details', 'delete_toggle_details');\" onmouseout=\"swap_display('delete_label_details', 'delete_toggle_details');\">\n";
@@ -370,9 +456,6 @@
 		echo "			</td>\n";
 		echo "			<td class='formfld'>\n";
 		echo "				<input class='formfld' type='text' name='access_control_nodes[$x][node_cidr]' maxlength='255' value=\"".escape($row["node_cidr"])."\">\n";
-		echo "			</td>\n";
-		echo "			<td class='formfld'>\n";
-		echo "				<input class='formfld' type='text' name='access_control_nodes[$x][node_domain]' maxlength='255' value=\"".escape($row["node_domain"])."\">\n";
 		echo "			</td>\n";
 		echo "			<td class='formfld'>\n";
 		echo "				<input class='formfld' type='text' name='access_control_nodes[$x][node_description]' maxlength='255' value=\"".escape($row["node_description"])."\">\n";
@@ -408,6 +491,7 @@
 	echo "</tr>\n";
 
 	echo "</table>";
+	echo "</div>";
 	echo "<br /><br />";
 
 	echo "<input type='hidden' name='".$token['name']."' value='".$token['hash']."'>\n";

@@ -24,9 +24,8 @@
 	Mark J Crane <markjcrane@fusionpbx.com>
 */
 
-//includes
-	include "root.php";
-	require_once "resources/require.php";
+//includes files
+	require_once dirname(__DIR__, 2) . "/resources/require.php";
 	require_once "resources/check_auth.php";
 
 //check permissions
@@ -39,8 +38,8 @@
 	}
 
 //get the variables
-	$filename = $_GET['filename'];
-	$type = $_GET['type']; //moh //rec
+	$filename = basename($_GET['filename'] ?? '');
+	$type = $_GET['type'] ?? ''; //moh //rec
 
 //show the content
 ?>

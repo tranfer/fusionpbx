@@ -17,23 +17,19 @@
 
 	The Initial Developer of the Original Code is
 	Mark J Crane <markjcrane@fusionpbx.com>
-	Portions created by the Initial Developer are Copyright (C) 2008-2019
+	Portions created by the Initial Developer are Copyright (C) 2008-2026
 	the Initial Developer. All Rights Reserved.
 
 	Contributor(s):
 	Mark J Crane <markjcrane@fusionpbx.com>
 */
 
-//includes
-	include "root.php";
-	require_once "resources/require.php";
+//includes files
+	require_once dirname(__DIR__, 2) . "/resources/require.php";
 	require_once "resources/check_auth.php";
 
 //check permissions
-	if (permission_exists('call_center_active_view')) {
-		//access granted
-	}
-	else {
+	if (!permission_exists('call_center_active_view')) {
 		echo "access denied";
 		exit;
 	}
@@ -44,7 +40,7 @@
 
 //get the queue_name and set it as a variable
 	$queue_name = $_GET['queue_name'];
-	$name = $_GET['name'];
+	$name = $_GET['name'] ?? null;
 
 //get a new session array
 	unset($_SESSION['queues']);
@@ -85,29 +81,75 @@
 	}
 
 	loadXmlHttp.prototype.stateChanged=function () {
-	if (this.xmlHttp.readyState == 4 && (this.xmlHttp.status == 200 || !/^http/.test(window.location.href)))
-		//this.el.innerHTML = this.xmlHttp.responseText;
-		document.getElementById('ajax_response').innerHTML = this.xmlHttp.responseText;
+		var url = new URL(this.xmlHttp.responseURL);
+
+		//logged out stop the refresh
+		if (/login\.php$/.test(url.pathname)) {
+			url.searchParams.set('path', '<?php echo escape($_SERVER['REQUEST_URI'] ?? ''); ?>');
+			window.location.href = url.href;
+			return;
+		}
+
+		if (this.xmlHttp.readyState == 4 && (this.xmlHttp.status == 200 || !/^http/.test(window.location.href))) {
+			//this.el.innerHTML = this.xmlHttp.responseText;
+			document.getElementById('ajax_response').innerHTML = this.xmlHttp.responseText;
+		}
 
 		//link table rows (except the last - the list_control_icons cell) on a table with a class of 'tr_hover', according to the href attribute of the <tr> tag
-			$('.tr_hover tr,.list tr').each(function(i,e) {
-				$(e).children('td:not(.list_control_icon,.list_control_icons,.tr_link_void,.list-row > .no-link,.list-row > .checkbox,.list-row > .button,.list-row > .action-button)').on('click', function() {
-					var href = $(this).closest('tr').attr('href');
-					var target = $(this).closest('tr').attr('target');
-					if (href) {
-						if (target) { window.open(href, target); }
-						else { window.location = href; }
-					}
-				});
+		$('.tr_hover tr,.list tr').each(function(i,e) {
+			$(e).children('td:not(.list_control_icon,.list_control_icons,.tr_link_void,.list-row > .no-link,.list-row > .checkbox,.list-row > .button,.list-row > .action-button)').on('click', function() {
+				var href = $(this).closest('tr').attr('href');
+				var target = $(this).closest('tr').attr('target');
+				if (href) {
+					if (target) { window.open(href, target); }
+					else { window.location = href; }
+				}
 			});
+		});
+
+		//filter agent list based on status
+		document.querySelectorAll('tr[data-agent-status]').forEach(table_row => {
+			const filter = '<?php echo escape($_GET['agent_status'] ?? ''); ?>';
+
+			if (filter === 'available' && !table_row.getAttribute('data-agent-status').includes('Available')) {
+				table_row.style.display = 'none';
+			}
+			// else if (filter === 'on_demand' && !table_row.getAttribute('data-agent-status').includes('On Demand')) {
+			// 	table_row.style.display = 'none';
+			// }
+			else if (filter === 'not_available' && table_row.getAttribute('data-agent-status').includes('Available')) {
+				table_row.style.display = 'none';
+			}
+			else if (filter === 'on_break' && !table_row.getAttribute('data-agent-status').includes('On Break')) {
+				table_row.style.display = 'none';
+			}
+			else if (filter === 'logged_out' && !table_row.getAttribute('data-agent-status').includes('Logged Out')) {
+				table_row.style.display = 'none';
+			}
+		});
 	}
 
 	var requestTime = function() {
-		var url = 'call_center_active_inc.php?queue_name=<?php echo escape($queue_name); ?>&name=<?php echo urlencode(escape($name)); ?>';
+		var url = 'call_center_active_inc.php?queue_name=<?php echo escape($queue_name); ?>&name=<?php echo urlencode($name); ?>&agent_status=<?php echo escape($_GET['agent_status'] ?? ''); ?>';
 		new loadXmlHttp(url, 'ajax_response');
 		<?php
-		if (strlen($_SESSION["ajax_refresh_rate"]) == 0) { $_SESSION["ajax_refresh_rate"] = "1777"; }
-		echo "setInterval(function(){new loadXmlHttp(url, 'ajax_reponse');}, ".$_SESSION["ajax_refresh_rate"].");";
+
+		//determine refresh rate
+		$refresh_default = 1500; //milliseconds
+		$refresh = is_numeric($settings->get('call_center', 'refresh')) ? $settings->get('call_center', 'refresh') : $refresh_default;
+		if ($refresh >= 0.5 && $refresh <= 120) { //convert seconds to milliseconds
+			$refresh = $refresh * 1000;
+		}
+		else if ($refresh < 0.5 || ($refresh > 120 && $refresh < 500)) {
+			$refresh = $refresh_default; //use default
+		}
+		else {
+			//>= 500, must be milliseconds
+		}
+
+		//set the value for the refresh
+		echo "setInterval(function(){new loadXmlHttp(url, 'ajax_reponse');}, ".$refresh.");";
+
 		?>
 	}
 
@@ -134,11 +176,32 @@
 
 <?php
 
-//show the response
+//show the content
+	$agent_status = $_GET['agent_status'] ?? '';
+	echo "<div class='action_bar' id='action_bar'>\n";
+	echo "	<div class='heading'><b>".$text['header-agents']."</b></div>\n";
+	echo "	<div class='actions'>\n";
+	echo "		<form id='frm' name='frm' method='GET'>\n";
+	echo "			<input type='hidden' name='queue_name' value='".escape($queue_name)."'>\n";
+	echo "			<input type='hidden' name='name' value='".escape($_GET['name'] ?? '')."'>\n";
+	echo "			<select class='formfld' name='agent_status' id='agent_status' onchange=\"document.getElementById('frm').submit();\">\n";
+	echo "				<option value='' selected disabled hidden>".$text['label-status']."...</option>";
+	echo "				<option value=''></option>\n";
+	echo "				<option value='available' ".($agent_status === 'available' ? 'selected' : null).">".$text['label-available']."</option>\n";
+	//echo "				<option value='on_demand' ".($agent_status === 'on_demand' ? 'selected' : null).">".$text['label-available_on_demand']."</option>\n";
+	echo "				<option value='not_available' ".($agent_status === 'not_available' ? 'selected' : null).">".$text['label-not_available']."</option>\n";
+	echo "				<option value='on_break' ".($agent_status === 'on_break' ? 'selected' : null).">".$text['label-on_break']."</option>\n";
+	echo "				<option value='logged_out' ".($agent_status === 'logged_out' ? 'selected' : null).">".$text['label-logged_out']."</option>\n";
+	echo "			</select>\n";
+	echo "		</form>\n";
+	echo "	</div>\n";
+	echo "	<div style='clear: both;'></div>\n";
+	echo "</div>\n";
+	echo $text['description-agents']."<br /><br />\n";
+
+	//show the response
 	echo "<div id='ajax_response'></div>\n";
 	echo "<br><br>";
 
 //include the footer
 	require_once "resources/footer.php";
-
-?>

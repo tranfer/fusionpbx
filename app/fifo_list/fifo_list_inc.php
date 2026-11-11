@@ -24,16 +24,12 @@
 	Mark J Crane <markjcrane@fusionpbx.com>
 */
 
-//includes
-	include "root.php";
-	require_once "resources/require.php";
+//includes files
+	require_once dirname(__DIR__, 2) . "/resources/require.php";
 	require_once "resources/check_auth.php";
 
 //check permissions
-	if (permission_exists('active_queue_view')) {
-		//access granted
-	}
-	else {
+	if (!permission_exists('active_queue_view')) {
 		echo "access denied";
 		exit;
 	}
@@ -43,13 +39,13 @@
 	$text = $language->get();
 
 //include theme config for button images
-	include_once("themes/".$_SESSION['domain']['template']['name']."/config.php");
+	include_once("themes/".$settings->get('domain', 'template', 'default')."/config.php");
 
 //show the list
 	$switch_cmd = 'fifo list';
-	$fp = event_socket_create($_SESSION['event_socket_ip_address'], $_SESSION['event_socket_port'], $_SESSION['event_socket_password']);
-	if ($fp) {
-		$xml_str = trim(event_socket_request($fp, 'api '.$switch_cmd));
+	$esl = event_socket::create();
+	if ($esl->is_connected()) {
+		$xml_str = trim(event_socket::api($switch_cmd));
 		try {
 			$xml = new SimpleXMLElement($xml_str);
 		}
@@ -78,6 +74,7 @@
 		$row_style["0"] = "row_style0";
 		$row_style["1"] = "row_style1";
 
+		echo "<div class='card'>\n";
 		echo "<table class='tr_hover' width='100%' border='0' cellpadding='0' cellspacing='0'>\n";
 		echo "<tr>\n";
 		echo "<th>".$text['label-name']."</th>\n";
@@ -100,29 +97,29 @@
 				$tmp_name_array = explode('@', $name);
 				$tmp_name = $tmp_name_array[0];
 
-			$td_onclick = "onclick=\"document.location.href='fifo_interactive.php?c=".escape($name)."';\"";
+			$td_onclick = "onclick=\"document.location.href='fifo_interactive.php?c=".urlencode($name)."';\"";
 
 			if (if_group("superadmin")) {
 				//show all fifo queues
 					echo "<tr >\n";
-					echo "<td valign='top' class='".$row_style[$c]."' ".$td_onclick."><a href='fifo_interactive.php?c=".escape($name)."'>".escape($tmp_name)."</a></td>\n";
+					echo "<td valign='top' class='".$row_style[$c]."' ".$td_onclick."><a href='fifo_interactive.php?c=".urlencode($name)."'>".escape($tmp_name)."</a></td>\n";
 					echo "<td valign='top' class='".$row_style[$c]."' ".$td_onclick.">".escape($consumer_count)."</td>\n";
 					echo "<td valign='top' class='".$row_style[$c]."' ".$td_onclick.">".escape($caller_count)."</td>\n";
 					echo "<td valign='top' class='".$row_style[$c]."' ".$td_onclick.">".escape($waiting_count)."</td>\n";
 					echo "<td valign='top' class='".$row_style[$c]."' ".$td_onclick.">".escape($importance)."</td>\n";
-					echo "<td class='list_control_icon'><a href='fifo_interactive.php?c=".escape($name)."' alt='".$text['button-view']."'>$v_link_label_view</a></td>\n";
+					echo "<td class='list_control_icon'><a href='fifo_interactive.php?c=".urlencode($name)."' alt='".$text['button-view']."'>$v_link_label_view</a></td>\n";
 					echo "</tr>\n";
 			}
 			else {
 				//show only the fifo queues that match the domain_name
 					if (stripos($name, $_SESSION['domain_name']) !== false) {
 						echo "<tr >\n";
-						echo "<td valign='top' class='".$row_style[$c]."' ".$td_onclick."><a href='fifo_interactive.php?c=".$name."'>".escape($tmp_name)."</a></td>\n";
+						echo "<td valign='top' class='".$row_style[$c]."' ".$td_onclick."><a href='fifo_interactive.php?c=".urlencode($name)."'>".escape($tmp_name)."</a></td>\n";
 						echo "<td valign='top' class='".$row_style[$c]."' ".$td_onclick.">".escape($consumer_count)."</td>\n";
 						echo "<td valign='top' class='".$row_style[$c]."' ".$td_onclick.">".escape($caller_count)."</td>\n";
 						echo "<td valign='top' class='".$row_style[$c]."' ".$td_onclick.">".escape($waiting_count)."</td>\n";
 						echo "<td valign='top' class='".$row_style[$c]."' ".$td_onclick.">".escape($importance)."</td>\n";
-						echo "<td class='list_control_icon'><a href='fifo_interactive.php?c=".escape($name)."' alt='".$text['button-view']."'>$v_link_label_view</a></td>\n";
+						echo "<td class='list_control_icon'><a href='fifo_interactive.php?c=".urlencode($name)."' alt='".$text['button-view']."'>$v_link_label_view</a></td>\n";
 						echo "</tr>\n";
 					}
 			}
@@ -130,6 +127,7 @@
 			$c = $c ? 0 : 1;
 		}
 		echo "</table>\n";
+		echo "</div>\n";
 	}
 
 ?>

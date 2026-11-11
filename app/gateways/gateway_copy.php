@@ -17,24 +17,20 @@
 
 	The Initial Developer of the Original Code is
 	Mark J Crane <markjcrane@fusionpbx.com>
-	Portions created by the Initial Developer are Copyright (C) 2008-2018
+	Portions created by the Initial Developer are Copyright (C) 2008-2025
 	the Initial Developer. All Rights Reserved.
 
 	Contributor(s):
 	Mark J Crane <markjcrane@fusionpbx.com>
 */
 
-//includes
-	include "root.php";
-	require_once "resources/require.php";
+//includes files
+	require_once dirname(__DIR__, 2) . "/resources/require.php";
 	require_once "resources/check_auth.php";
 	require_once "resources/paging.php";
 
 //check permissions
-	if (permission_exists('gateway_add')) {
-		//access granted
-	}
-	else {
+	if (!permission_exists('gateway_add')) {
 		echo "access denied";
 		exit;
 	}
@@ -51,13 +47,13 @@
 			$sql = "select * from v_gateways ";
 			$sql .= "where gateway_uuid = :gateway_uuid ";
 			$parameters['gateway_uuid'] = $gateway_uuid;
-			$database = new database;
 			$row = $database->select($sql, $parameters, 'row');
 			if (is_array($row) && @sizeof($row) != 0) {
 				$domain_uuid = $row["domain_uuid"];
 				$gateway = $row["gateway"];
 				$username = $row["username"];
 				$password = $row["password"];
+				$distinct_to = !empty($row["distinct_to"]) ? 'true' : 'false';
 				$auth_username = $row["auth_username"];
 				$realm = $row["realm"];
 				$from_user = $row["from_user"];
@@ -66,15 +62,19 @@
 				$register_proxy = $row["register_proxy"];
 				$outbound_proxy = $row["outbound_proxy"];
 				$expire_seconds = $row["expire_seconds"];
-				$register = $row["register"];
+				$register = !empty($row["register"]) ? 'true' : 'false';
 				$register_transport = $row["register_transport"];
+				$contact_params = $row["contact_params"];
 				$retry_seconds = $row["retry_seconds"];
 				$extension = $row["extension"];
 				$codec_prefs = $row["codec_prefs"];
 				$ping = $row["ping"];
-				$channels = $row["channels"];
-				$caller_id_in_from = $row["caller_id_in_from"];
-				$supress_cng = $row["supress_cng"];
+				$ping_min = $row["ping_min"];
+				$ping_max = $row["ping_max"];
+				$contact_in_ping = !empty($row["contact_in_ping"]) ? 'true' : 'false';
+				// $channels = $row["channels"];
+				$caller_id_in_from = !empty($row["caller_id_in_from"]) ? 'true' : 'false';
+				$supress_cng = !empty($row["supress_cng"]) ? 'true' : 'false';
 				$sip_cid_type = $row["sip_cid_type"];
 				$extension_in_contact = $row["extension_in_contact"];
 				$effective_caller_id_name = $row["effective_caller_id_name"];
@@ -83,16 +83,16 @@
 				$outbound_caller_id_number = $row["outbound_caller_id_number"];
 				$context = $row["context"];
 				$profile = $row["profile"];
-				$enabled = $row["enabled"];
+				$enabled = !empty($row["enabled"]) ? 'true' : 'false';
 				$description = $row["description"]." (".$text['label-copy'].")";
 			}
 			unset($sql, $parameters, $row);
 
 		//set defaults
-			if (strlen($expire_seconds) == 0) {
+			if (empty($expire_seconds)) {
 				$expire_seconds = '800';
 			}
-			if (strlen($retry_seconds) == 0) {
+			if (empty($retry_seconds)) {
 				$retry_seconds = '30';
 			}
 
@@ -103,6 +103,7 @@
 			$array['gateways'][0]['gateway'] = $gateway;
 			$array['gateways'][0]['username'] = $username;
 			$array['gateways'][0]['password'] = $password;
+			$array['gateways'][0]['distinct_to'] = $distinct_to;
 			$array['gateways'][0]['auth_username'] = $auth_username;
 			$array['gateways'][0]['realm'] = $realm;
 			$array['gateways'][0]['from_user'] = $from_user;
@@ -113,28 +114,29 @@
 			$array['gateways'][0]['expire_seconds'] = $expire_seconds;
 			$array['gateways'][0]['register'] = $register;
 			$array['gateways'][0]['register_transport'] = $register_transport;
+			$array['gateways'][0]['contact_params'] = $contact_params;
 			$array['gateways'][0]['retry_seconds'] = $retry_seconds;
 			$array['gateways'][0]['extension'] = $extension;
 			$array['gateways'][0]['codec_prefs'] = $codec_prefs;
 			$array['gateways'][0]['ping'] = $ping;
+			$array['gateways'][0]['ping_min'] = $ping_min;
+			$array['gateways'][0]['ping_max'] = $ping_max;
+			$array['gateways'][0]['contact_in_ping'] = $contact_in_ping;
 			//$array['gateways'][0]['channels'] = $channels;
 			$array['gateways'][0]['caller_id_in_from'] = $caller_id_in_from;
 			$array['gateways'][0]['supress_cng'] = $supress_cng;
-         		$array['gateways'][0]['sip_cid_type'] = $sip_cid_type;
+			$array['gateways'][0]['sip_cid_type'] = $sip_cid_type;
 			$array['gateways'][0]['extension_in_contact'] = $extension_in_contact;
 			$array['gateways'][0]['context'] = $context;
 			$array['gateways'][0]['profile'] = $profile;
 			$array['gateways'][0]['enabled'] = $enabled;
 			$array['gateways'][0]['description'] = $description;
 
-			$database = new database;
-			$database->app_name = 'gateways';
-			$database->app_uuid = '297ab33e-2c2f-8196-552c-f3567d2caaf8';
 			$database->save($array);
 			unset($array);
 
 		//add new gateway to session variable
-			if ($enabled == 'true') {
+			if (!empty($enabled)) {
 				$_SESSION['gateways'][$gateway_uuid] = $gateway;
 			}
 
@@ -142,17 +144,41 @@
 			save_gateway_xml();
 
 		//clear the cache
-			$fp = event_socket_create($_SESSION['event_socket_ip_address'], $_SESSION['event_socket_port'], $_SESSION['event_socket_password']);
-			$hostname = trim(event_socket_request($fp, 'api switchname'));
 			$cache = new cache;
-			$cache->delete("configuration:sofia.conf:".$hostname);
+			$cache->delete(gethostname().":configuration:sofia.conf");
 
 		//set message
 			message::add($text['message-copy']);
 	}
 
+// Set variables from http GET parameters
+	$page = is_numeric($_GET['page'] ?? '') ? $_GET['page'] : 0;
+	$order_by = preg_replace('#[^a-zA-Z0-9_\-]#', '', $_GET['order_by'] ?? '');
+	$order = ($_GET['order'] ?? '') === 'desc' ? 'desc' : 'asc';
+	$search = $_GET['search'] ?? '';
+	$show = $_GET['show'] ?? '';
+
+// Build the query string
+	$url_params = [];
+	if (!empty($page)) {
+		$url_params['page'] = $page;
+	}
+	if (!empty($_GET['order_by'])) {
+		$url_params['order_by'] = $order_by;
+	}
+	if (!empty($_GET['order'])) {
+		$url_params['order'] = $order;
+	}
+	if (!empty($search)) {
+		$url_params['search'] = $search;
+	}
+	if (!empty($show) && $show == 'all' && permission_exists('gateway_all')) {
+		$url_params['show'] = $show;
+	}
+	$query_string = http_build_query($url_params);
+
 //redirect the user
-	header("Location: gateways.php");
+	header("Location: gateways.php".($query_string ? '?'.$query_string : ''));
 	return;
 
 ?>

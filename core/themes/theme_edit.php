@@ -1,0 +1,506 @@
+<?php
+/*
+	FusionPBX
+	Version: MPL 1.1
+
+	The contents of this file are subject to the Mozilla Public License Version
+	1.1 (the "License"); you may not use this file except in compliance with
+	the License. You may obtain a copy of the License at
+	http://www.mozilla.org/MPL/
+
+	Software distributed under the License is distributed on an "AS IS" basis,
+	WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
+	for the specific language governing rights and limitations under the
+	License.
+
+	The Original Code is FusionPBX
+
+	The Initial Developer of the Original Code is
+	Mark J Crane <markjcrane@fusionpbx.com>
+	Portions created by the Initial Developer are Copyright (C) 2026
+	the Initial Developer. All Rights Reserved.
+*/
+
+//includes files
+	require_once dirname(__DIR__, 2) . "/resources/require.php";
+	require_once "resources/check_auth.php";
+
+//check permissions
+	if (!(permission_exists('theme_add') || permission_exists('theme_edit'))) {
+		echo "access denied";
+		exit;
+	}
+
+//add multi-lingual support
+	$language = new text;
+	$text = $language->get();
+
+//set the defaults
+	$theme_category = '';
+	$theme_name = '';
+	$theme_description = '';
+
+// Set variables from http GET parameters
+	$page = is_numeric($_GET['page'] ?? '') ? $_GET['page'] : 0;
+	$order_by = preg_replace('#[^a-zA-Z0-9_\-]#', '', $_GET['order_by'] ?? '');
+	$order = ($_GET['order'] ?? '') === 'desc' ? 'desc' : 'asc';
+	$search = $_GET['search'] ?? '';
+	$show = $_GET['show'] ?? '';
+
+// Build the query string
+	$url_params = [];
+	if (!empty($theme_uuid)) {
+		$url_params['id'] = $theme_uuid;
+	}
+	if (!empty($page)) {
+		$url_params['page'] = $page;
+	}
+	if (!empty($_GET['order_by'])) {
+		$url_params['order_by'] = $order_by;
+	}
+	if (!empty($_GET['order'])) {
+		$url_params['order'] = $order;
+	}
+	if (!empty($search)) {
+		$url_params['search'] = $search;
+	}
+	if (!empty($show) && $show == 'all' && permission_exists('theme_all')) {
+		$url_params['show'] = $show;
+	}
+	$query_string = http_build_query($url_params);
+
+//action add or update
+	if (!empty($_REQUEST["id"]) && is_uuid($_REQUEST["id"])) {
+		$action = "update";
+		$theme_uuid = $_REQUEST["id"];
+	}
+	else {
+		$action = "add";
+		$theme_uuid = '';
+	}
+
+//get http post variables and set them to php variables
+	if (!empty($_POST)) {
+		$theme_category = $_POST["theme_category"] ?? null;
+		$theme_name = $_POST["theme_name"] ?? null;
+		$theme_enabled = $_POST["theme_enabled"] ?? null;
+		$theme_description = $_POST["theme_description"] ?? null;
+		$theme_settings = $_POST["theme_settings"] ?? null;
+	}
+
+//process the data and save it to the database
+	if (!empty($_POST) && empty($_POST["persistformvar"])) {
+
+		//validate the token
+			$token = new token;
+			if (!$token->validate($_SERVER['PHP_SELF'])) {
+				message::add($text['message-invalid_token'],'negative');
+				header('Location: theme_edit.php?id='.urlencode($theme_uuid));
+				exit;
+			}
+
+		//check for all required data
+			$msg = '';
+			// if (empty($theme_name)) { $msg .= $text['message-required']." ".$text['label-theme_name']."<br>\n"; }
+			// if (empty($theme_enabled)) { $msg .= $text['message-required']." ".$text['label-theme_enabled']."<br>\n"; }
+			// if (empty($theme_description)) { $msg .= $text['message-required']." ".$text['label-theme_description']."<br>\n"; }
+			if (!empty($msg) && empty($_POST["persistformvar"])) {
+				require_once "resources/header.php";
+				require_once "resources/persist_form_var.php";
+				echo "<div align='center'>\n";
+				echo "<table><tr><td>\n";
+				echo $msg."<br />";
+				echo "</td></tr></table>\n";
+				persistformvar($_POST);
+				echo "</div>\n";
+				require_once "resources/footer.php";
+				return;
+			}
+
+		//add the theme_uuid
+			if (!is_uuid($theme_uuid)) {
+				$theme_uuid = uuid();
+				foreach ($theme_settings as $x => $setting) {
+					$theme_settings[$x]['theme_uuid'] = $theme_uuid;
+				}
+			}
+
+		//prepare the array
+			$array['themes'][0]['theme_uuid'] = $theme_uuid;
+			$array['themes'][0]['theme_category'] = $theme_category;
+			$array['themes'][0]['theme_name'] = $theme_name;
+			$array['themes'][0]['theme_enabled'] = $theme_enabled;
+			$array['themes'][0]['theme_description'] = $theme_description;
+			$array['theme_settings'] = $theme_settings;
+
+		//save the data
+			$database->save($array);
+
+		//redirect the user
+			if (isset($action)) {
+				if ($action == "add") {
+					$_SESSION["message"] = $text['message-add'];
+				}
+				if ($action == "update") {
+					$_SESSION["message"] = $text['message-update'];
+				}
+				header('Location: theme_edit.php?id='.urlencode($theme_uuid));
+				return;
+			}
+
+	}
+
+//pre-populate the form
+	if (is_array($_GET) && empty($_POST["persistformvar"])) {
+		$sql = "select ";
+		$sql .= " theme_uuid, ";
+		$sql .= " theme_category, ";
+		$sql .= " theme_name, ";
+		$sql .= " theme_enabled , ";
+		$sql .= " theme_description ";
+		$sql .= "from v_themes ";
+		$sql .= "where theme_uuid = :theme_uuid ";
+		$parameters['theme_uuid'] = $theme_uuid;
+		$row = $database->select($sql, $parameters, 'row');
+		if (is_array($row) && @sizeof($row) != 0) {
+			$theme_category = $row["theme_category"];
+			$theme_name = $row["theme_name"];
+			$theme_enabled = $row["theme_enabled"];
+			$theme_description = $row["theme_description"];
+		}
+		unset($sql, $parameters, $row);
+	}
+
+//get the theme categories
+	$sql = "select distinct theme_category from v_themes ";
+	$theme_categories = $database->select($sql, $parameters ?? null, 'all');
+	unset($sql, $parameters);
+
+//get the theme settings
+	$sql = "select ";
+	$sql .= "theme_uuid, ";
+	$sql .= "theme_setting_uuid, ";
+	$sql .= "theme_setting_name, ";
+	$sql .= "theme_setting_type, ";
+	$sql .= "theme_setting_value, ";
+	$sql .= "theme_setting_enabled, ";
+	$sql .= "theme_setting_description ";
+	$sql .= "from v_theme_settings ";
+	$sql .= "where theme_uuid = :theme_uuid ";
+	$parameters['theme_uuid'] = $theme_uuid;
+	$sql .= order_by($order_by, $order, 'theme_setting_name', 'asc');
+	$theme_settings = $database->select($sql, $parameters ?? null, 'all');
+	unset($sql, $parameters);
+
+//pre-populate the form with default setting colors
+	if ($action == "add") {
+		$sql = "select ";
+		$sql .= "default_setting_subcategory, ";
+		$sql .= "default_setting_name, ";
+		$sql .= "default_setting_value, ";
+		$sql .= "default_setting_order, ";
+		$sql .= "default_setting_enabled, ";
+		$sql .= "default_setting_description ";
+		$sql .= "from v_default_settings ";
+		$sql .= "where default_setting_category = 'theme' ";
+		$sql .= "and (default_setting_value like '#%' or default_setting_value like 'rgb%' or default_setting_category like '%color%') ";
+		$sql .= "order by default_setting_subcategory asc ";
+		$default_settings = $database->select($sql, $parameters ?? null, 'all');
+		unset($sql, $parameters);
+		$theme_settings = [];
+		foreach ($default_settings as $x => $setting) {
+			$theme_settings[$x]['theme_setting_uuid'] = uuid();
+			$theme_settings[$x]['theme_setting_name'] = $setting['default_setting_subcategory'];
+			$theme_settings[$x]['theme_setting_type'] = $setting['default_setting_name'];
+			$theme_settings[$x]['theme_setting_value'] = $setting['default_setting_value'];
+			$theme_settings[$x]['theme_setting_order'] = $setting['default_setting_order'];
+			$theme_settings[$x]['theme_setting_enabled'] = $setting['default_setting_enabled'];
+		}
+	}
+
+//set the defaults
+	$theme_enabled = $theme_enabled ?? true;
+
+//create token
+	$object = new token;
+	$token = $object->create($_SERVER['PHP_SELF']);
+
+//show the header
+	$document['title'] = $text['title-theme'];
+	require_once "resources/header.php";
+
+//show the content
+	echo "<form name='frm' id='frm' method='post'>\n";
+	echo "<input class='formfld' type='hidden' name='theme_uuid' value='".escape($theme_uuid)."'>\n";
+
+	echo "<div class='action_bar' id='action_bar'>\n";
+	echo "	<div class='heading'><b>".$text['title-theme']."</b></div>\n";
+	echo "	<div class='actions'>\n";
+	echo button::create(['type'=>'button','label'=>$text['button-back'],'icon'=>$settings->get('theme', 'button_icon_back'),'id'=>'btn_back','collapse'=>'hide-xs','style'=>'margin-right: 15px;','link'=>'themes.php']);
+	if (permission_exists('theme_setting_view') && $action == 'update') {
+		if (permission_exists('theme_export')) {
+			echo button::create(['type'=>'button','label'=>$text['button-export'],'icon'=>$settings->get('theme', 'button_icon_export'),'link'=>'theme_download.php?id='.urlencode($theme_uuid)]);
+		}
+		echo button::create(['type'=>'button','label'=>$text['button-settings'],'icon'=>$settings->get('theme', 'button_icon_settings'),'id'=>'btn_back','style'=>'margin-right: 2px;','link'=>PROJECT_PATH.'/core/themes/theme_settings.php?id='.$theme_uuid]);
+	}
+	echo button::create(['type'=>'submit','label'=>$text['button-save'],'icon'=>$settings->get('theme', 'button_icon_save'),'id'=>'btn_save','collapse'=>'hide-xs']);
+	echo "	</div>\n";
+	echo "	<div style='clear: both;'></div>\n";
+	echo "</div>\n";
+
+	echo $text['title_description-themes']."\n";
+	echo "<br /><br />\n";
+
+	echo "<div class='card'>\n";
+	echo "<table width='100%' border='0' cellpadding='0' cellspacing='0'>\n";
+
+	echo "<tr>\n";
+	echo "<td class='vncell' width='30%' valign='top' align='left' nowrap='nowrap'>\n";
+	echo "	".$text['label-category']."\n";
+	echo "</td>\n";
+	echo "<td class='vtable' style='position: relative;' align='left'>\n";
+	echo "	<div class='searchable_select_wrapper'>\n";
+	echo "		<input class='formfld category_search_input' type='text' name='theme_category' maxlength='255' value='".escape($theme_category)."'>\n";
+	echo "		<div class='search_results'></div>\n";
+	echo "		<select class='category_hidden_select' style='display:none;'>\n";
+	foreach ($theme_categories as $category) {
+		echo "		<option value='".escape($category['theme_category'])."'>".escape($category['theme_category'])."</option>";
+	}
+	echo "		</select>\n";
+	echo "	</div>\n";
+	echo "<br />\n";
+	echo $text['description-category']."\n";
+	echo "</td>\n";
+	echo "</tr>\n";
+
+	?>
+	<script>
+	document.addEventListener('DOMContentLoaded', function() {
+		const wrappers = document.querySelectorAll('.searchable_select_wrapper:has(.category_hidden_select)');
+
+		wrappers.forEach(wrapper => {
+			const input = wrapper.querySelector('.category_search_input');
+			const hidden_select = wrapper.querySelector('.category_hidden_select');
+			const results = wrapper.querySelector('.search_results');
+
+			// Cache options once for performance
+			const options = Array.from(hidden_select.querySelectorAll('option'));
+
+			if (!input || !results) return;
+
+			function render_results() {
+				// Hide other dropdowns before showing the active one
+				document.querySelectorAll('.search_results').forEach(dropdown => { dropdown.style.display = 'none'; });
+				results.style.display = 'block';
+
+				const term = this.value.trim().toLowerCase();
+
+				// Clear previous results
+				results.innerHTML = '';
+
+				options.forEach(option => {
+					const label = option.value.trim().toLowerCase();
+					const descriptions = (option.getAttribute('data-description') || '').split(',').map(u => u.trim()).filter(Boolean);
+					const descriptions_lower = descriptions.map(description => description.toLowerCase());
+
+					// Match if label or description contains the search term
+					const matches_label = label.includes(term);
+					const matches_description = descriptions_lower.some(description => description.includes(term));
+
+					if (matches_label || matches_description) {
+						const item = document.createElement('div');
+						item.className = 'search_result_item';
+
+						const name = document.createElement('div');
+						name.className = 'search_result_name';
+						name.textContent = option.value;
+
+						const description = document.createElement('div');
+						description.className = 'search_result_description';
+						description.textContent = option.getAttribute('data-description') || '';
+
+						item.appendChild(name);
+						item.appendChild(description);
+
+						// Click to populate input & hidden select
+						item.addEventListener('click', () => {
+							input.value = option.value;
+							hidden_select.value = option.value;
+							results.style.display = 'none';
+
+							input.dispatchEvent(new Event('focus', { bubbles: true }));
+							input.dispatchEvent(new Event('input',  { bubbles: true }));
+						});
+
+						results.appendChild(item);
+					}
+				});
+			}
+
+			input.addEventListener('focus',  render_results);
+			input.addEventListener('input',  render_results);
+		});
+	});
+	</script>
+	<?php
+
+	echo "<tr>\n";
+	echo "<td class='vncellreq' valign='top' align='left' nowrap='nowrap'>\n";
+	echo "	".$text['label-theme_name']."\n";
+	echo "</td>\n";
+	echo "<td class='vtable' style='position: relative;' align='left'>\n";
+	echo "	<input class='formfld' type='text' name='theme_name' maxlength='255' value='".escape($theme_name)."'>\n";
+	echo "<br />\n";
+	echo $text['description-theme_name']."\n";
+	echo "</td>\n";
+	echo "</tr>\n";
+
+	echo "<tr>\n";
+	echo "<td class='vncellreq' valign='top' align='left' nowrap='nowrap'>\n";
+	echo "	".$text['label-theme_enabled']."\n";
+	echo "</td>\n";
+	echo "<td class='vtable' style='position: relative;' align='left'>\n";
+	if ($input_toggle_style_switch) {
+		echo "	<span class='switch'>\n";
+	}
+	echo "	<select class='formfld' id='theme_enabled' name='theme_enabled'>\n";
+	echo "		<option value='true' ".($theme_enabled == true ? "selected='selected'" : null).">".$text['option-true']."</option>\n";
+	echo "		<option value='false' ".($theme_enabled == false ? "selected='selected'" : null).">".$text['option-false']."</option>\n";
+	echo "	</select>\n";
+	if ($input_toggle_style_switch) {
+		echo "		<span class='slider'></span>\n";
+		echo "	</span>\n";
+	}
+	echo "<br />\n";
+	echo $text['description-theme_enabled']."\n";
+	echo "</td>\n";
+	echo "</tr>\n";
+
+	echo "<tr>\n";
+	echo "<td class='vncell' valign='top' align='left' nowrap='nowrap'>\n";
+	echo "	".$text['label-theme_description']."\n";
+	echo "</td>\n";
+	echo "<td class='vtable' style='position: relative;' align='left'>\n";
+	echo "	<input class='formfld' type='text' name='theme_description' maxlength='255' value='".escape($theme_description)."'>\n";
+	echo "<br />\n";
+	echo $text['description-theme_description']."\n";
+	echo "</td>\n";
+	echo "</tr>\n";
+
+	echo "</table>";
+	echo "</div>";
+
+	if (!empty($theme_settings) && is_array($theme_settings) && @sizeof($theme_settings) != 0) {
+		echo "<div class='action_bar' id='action_bar_sub'>\n";
+		echo "	<div class='heading' id='action_bar_sub_heading' style='display: none;'><b>".$text['title-theme']."</b></div>\n";
+		echo "	<div class='actions'>\n";
+		echo button::create(['type'=>'button','label'=>$text['button-back'],'icon'=>$settings->get('theme', 'button_icon_back'),'id'=>'action_bar_sub_button_back','collapse'=>'hide-xs','style'=>'margin-right: 15px; display: none;','link'=>'themes.php']);
+		if (permission_exists('theme_setting_add') && $action == 'update') {
+			echo button::create(['type'=>'button','label'=>$text['button-add'],'icon'=>$settings->get('theme', 'button_icon_add'),'id'=>'btn_add','name'=>'btn_add','link'=>'theme_setting_edit.php?theme_uuid='.$theme_uuid]);
+		}
+		echo "	</div>\n";
+		echo "	<div style='clear: both;'></div>\n";
+		echo "</div>\n";
+
+		echo "<div class='card'>\n";
+		echo "<table class='list'>\n";
+		$previous_category = '';
+		foreach ($theme_settings as $x => $row) {
+			if (empty($row['theme_setting_name'])) {
+				continue;
+			}
+			$label = ucwords(str_replace('_', ' ', $row['theme_setting_name'] ?? ''));
+			$first_word = explode(' ', $label)[0];
+			switch ($first_word) {
+				case 'Action':
+					$category = 'Action Bar';
+					break;
+				case 'Active':
+					$category = 'Active Conference';
+					break;
+				case 'Audio':
+					$category = 'Audio Player';
+					break;
+				case 'Form':
+					$category = 'Form Table';
+					break;
+				case 'Operator':
+					$category = 'Operator Panel';
+					break;
+				default:
+					$category = $first_word;
+			}
+			if ($previous_category != $category) {
+				echo "<tr>\n";
+				echo "<td colspan='7' class='no-link'>\n";
+				echo ($previous_category != '' ? '<br />' : null)."<b>".escape($category)."</b>";
+				echo "</td>\n";
+				echo "</tr>\n";
+			}
+			echo "<tr>\n";
+			echo "<td class='vncell no-link' width='30%' valign='top' align='left' nowrap='nowrap'>\n";
+			echo "	".escape(str_replace($category, '', $label))."\n";
+			echo "</td>\n";
+			echo "<td class='vtable no-link' style='position: relative;' align='left'>\n";
+			echo "	<input type='hidden' name='theme_settings[$x][theme_uuid]' value='".escape($row['theme_uuid'] ?? '')."'>\n";
+			echo "	<input type='hidden' name='theme_settings[$x][theme_setting_uuid]' value='".escape($row['theme_setting_uuid'])."'>\n";
+			echo "	<input type='hidden' name='theme_settings[$x][theme_setting_name]' value='".escape($row['theme_setting_name'])."'>\n";
+			echo "	<input type='hidden' name='theme_settings[$x][theme_setting_type]' value='".escape($row['theme_setting_type'])."'>\n";
+			if (substr_count($row['theme_setting_name'], "_color") > 0 || str_starts_with($row['theme_setting_value'] ?? '', "rgb") || str_starts_with($row['theme_setting_value'] ?? '', "#")) {
+				echo "	<input type='text' class='formfld colorpicker' id='colorpicker_$x' name='theme_settings[$x][theme_setting_value]' value=\"".escape($row['theme_setting_value'])."\">\n";
+				echo "	<div id='color_$x' style='display: inline-block; width: 15px; height: 15px; background: ".escape($row['theme_setting_value'])."; margin-right: 4px; vertical-align: middle; border: 1px solid ".(color_adjust($row['theme_setting_value'], -0.18))."; padding: -1px;'></div>\n";
+				echo "	<script>\n";
+				echo "	$('#colorpicker_$x').on('changeColor', function (event) {\n";
+				echo "		document.getElementById('color_$x').style.background = event.color.toHex();\n";
+				echo "		document.getElementById('theme_setting_enabled_$x').value = true;\n";
+				echo "	});\n";
+				echo "	</script>\n";
+			} else {
+				echo "	<input type='text' class='formfld' name='theme_settings[$x][theme_setting_value]' value=\"".escape($row['theme_setting_value'])."\" oninput=\"document.getElementById('theme_setting_enabled_$x').value = true;\">\n";
+			}
+			if ($input_toggle_style_switch) {
+				echo "	<span class='switch' style='scale: 0.6; float: right;'>\n";
+			}
+			echo "	<select class='formfld' id='theme_setting_enabled_$x' name='theme_settings[$x][theme_setting_enabled]' style='scale: 0.6; float: right;'>\n";
+			echo "		<option value='true' ".($row['theme_setting_enabled'] == true ? "selected" : null).">".$text['option-true']."</option>\n";
+			echo "		<option value='false' ".($row['theme_setting_enabled'] == false ? "selected" : null).">".$text['option-false']."</option>\n";
+			echo "	</select>\n";
+			if ($input_toggle_style_switch) {
+				echo "		<span class='slider'></span>\n";
+				echo "	</span>\n";
+			}
+			echo "</td>\n";
+			echo "</tr>\n";
+			$previous_category = $category;
+		}
+		unset($theme_settings);
+		echo "</table>\n";
+		echo "</div>\n";
+	}
+
+	echo "<input type='hidden' name='".$token['name']."' value='".$token['hash']."'>\n";
+	echo "</form>";
+
+//make sub action bar sticky
+	echo "<script>\n";
+
+	echo "	window.addEventListener('scroll', function(){\n";
+	echo "		action_bar_scroll('action_bar_sub', 280, heading_modify, heading_restore);\n";
+	echo "	}, false);\n";
+
+	echo "	function heading_modify() {\n";
+	echo "		document.getElementById('action_bar_sub_heading').style.display = 'inline-block';\n";
+	echo "		document.getElementById('action_bar_sub_button_back').style.display = 'inline-block';\n";
+	echo "	}\n";
+
+	echo "	function heading_restore() {\n";
+	echo "		document.getElementById('action_bar_sub_heading').style.display = 'none';\n";
+	echo "		document.getElementById('action_bar_sub_button_back').style.display = 'none';\n";
+	echo "	}\n";
+
+	echo "</script>\n";
+
+//include the footer
+	require_once "resources/footer.php";
+
+?>

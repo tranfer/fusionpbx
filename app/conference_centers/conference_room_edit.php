@@ -17,7 +17,7 @@
 
 	The Initial Developer of the Original Code is
 	Mark J Crane <markjcrane@fusionpbx.com>
-	Portions created by the Initial Developer are Copyright (C) 2008-2020
+	Portions created by the Initial Developer are Copyright (C) 2008-2026
 	the Initial Developer. All Rights Reserved.
 
 	Contributor(s):
@@ -25,16 +25,12 @@
 	Luis Daniel Lucio Quiroz <dlucio@okay.com.mx>
 */
 
-//includes
-	require_once "root.php";
-	require_once "resources/require.php";
+//includes files
+	require_once dirname(__DIR__, 2) . "/resources/require.php";
 	require_once "resources/check_auth.php";
 
 //check permissions
-	if (permission_exists('conference_room_add') || permission_exists('conference_room_edit')) {
-		//access granted
-	}
-	else {
+	if (!(permission_exists('conference_room_add') || permission_exists('conference_room_edit'))) {
 		echo "access denied";
 		exit;
 	}
@@ -43,8 +39,37 @@
 	$language = new text;
 	$text = $language->get();
 
+//set the defaults
+	$conference_room_name = '';
+	$start_datetime = '';
+	$stop_datetime = '';
+	$account_code = '';
+	$description = '';
+
+// Set variables from GET parameters
+	$page = is_numeric($_GET['page'] ?? '') ? $_GET['page'] : 0;
+	$order_by = preg_replace('#[^a-zA-Z0-9_\-]#', '', $_GET['order_by'] ?? '');
+	$order = ($_GET['order'] ?? '') === 'desc' ? 'desc' : 'asc';
+	$search = $_GET['search'] ?? '';
+
+// Build the query string
+	$param = [];
+	if (!empty($page)) {
+		$param['page'] = $page;
+	}
+	if (!empty($_GET['order_by'])) {
+		$param['order_by'] = $order_by;
+	}
+	if (!empty($_GET['order'])) {
+		$param['order'] = $order;
+	}
+	if (!empty($search)) {
+		$param['search'] = $search;
+	}
+	$query_string = http_build_query($param);
+
 //action add or update
-	if (is_uuid($_REQUEST["id"])) {
+	if (!empty($_REQUEST["id"]) && is_uuid($_REQUEST["id"])) {
 		$action = "update";
 		$conference_room_uuid = $_REQUEST["id"];
 	}
@@ -53,12 +78,12 @@
 	}
 
 //get http post variables and set them to php variables
-	if (count($_POST) > 0) {
+	if (!empty($_POST)) {
 		$conference_center_uuid = $_POST["conference_center_uuid"];
-		$meeting_uuid = $_POST["meeting_uuid"];
 		$conference_room_name = $_POST['conference_room_name'];
 		$moderator_pin = $_POST["moderator_pin"];
 		$participant_pin = $_POST["participant_pin"];
+
 		$profile = $_POST["profile"];
 		$record = $_POST["record"];
 		$user_uuid = $_POST["user_uuid"];
@@ -72,8 +97,10 @@
 		$announce_count = $_POST["announce_count"];
 		$sounds = $_POST["sounds"];
 		$mute = $_POST["mute"];
-		$created = $_POST["created"];
-		$created_by = $_POST["created_by"];
+		$created = $_POST["created"] ?? null;
+		$created_by = $_POST["created_by"] ?? null;
+		$email_address = $_POST["email_address"] ?? null;
+		$account_code = $_POST["account_code"];
 		$enabled = $_POST["enabled"];
 		$description = $_POST["description"];
 
@@ -82,428 +109,385 @@
 		$participant_pin = preg_replace('{\D}', '', $participant_pin);
 	}
 
+//set the default values
+	$profile = $profile ?? 'default';
+	$max_members = $max_members ?? 0;
+
 //get the conference centers array and set a default conference center
 	$sql = "select * from v_conference_centers ";
 	$sql .= "where domain_uuid = :domain_uuid ";
 	$sql .= "order by conference_center_name asc ";
 	$parameters['domain_uuid'] = $_SESSION['domain_uuid'];
-	$database = new database;
 	$conference_centers = $database->select($sql, $parameters, 'all');
-	if (!is_uuid($conference_center_uuid)) {
-		$conference_center_uuid = $conference_centers[0]["conference_center_uuid"];
-	}
 	unset($sql, $parameters);
+
+//conference center to be setup first before adding a room
+	if (empty($conference_centers)) {
+		message::add($text['message-conference_center_required'], 'negative');
+		header("Location: conference_rooms.php");
+		exit;
+	}
 
 //get the conference profiles
 	$sql = "select * ";
 	$sql .= "from v_conference_profiles ";
 	$sql .= "where profile_enabled = 'true' ";
 	$sql .= "and profile_name <> 'sla' ";
-	$database = new database;
 	$conference_profiles = $database->select($sql, null, 'all');
 	unset ($sql);
 
 //set the default
-	if ($profile === "") { $profile = "default"; }
+	if (empty($profile)) { $profile = "default"; }
 
-//define fucntion get_meeting_pin - used to find a unique pin number
-	function get_meeting_pin($length, $meeting_uuid) {
+	/**
+	 * Generates a unique pin number for a conference room.
+	 *
+	 * @param int    $length               The length of the pin number to be generated.
+	 * @param string $conference_room_uuid The UUID of the conference room.
+	 *
+	 * @return string A unique pin number if available, or generates another one recursively until an available one is found.
+	 */
+	function get_conference_pin($length, $conference_room_uuid) {
+		//set the variable as global
+		global $database;
+
+		//get the pin number
 		$pin = generate_password($length,1);
-		$sql = "select count(*) from v_meetings ";
+
+		//return an available pin number
+		$sql = "select count(*) from v_conference_rooms ";
 		$sql .= "where domain_uuid = :domain_uuid ";
-		//$sql .= "and meeting_uuid <> :meeting_uuid ";
+		$sql .= "and conference_room_uuid <> :conference_room_uuid ";
 		$sql .= "and (moderator_pin = :pin or participant_pin = :pin) ";
 		$parameters['domain_uuid'] = $_SESSION['domain_uuid'];
-		//$parameters['meeting_uuid'] = $meeting_uuid;
+		$parameters['conference_room_uuid'] = $conference_room_uuid;
 		$parameters['pin'] = $pin;
-		$database = new database;
 		$num_rows = $database->select($sql, $parameters, 'column');
 		if ($num_rows == 0) {
 			return $pin;
 		}
 		else {
-			get_meeting_pin($length, $uuid);
+			get_conference_pin($length, $conference_room_uuid);
 		}
 		unset($sql, $parameters);
 	}
 
-//record announcment
-	if ($record == "true") {
+//record the announcement
+	if (!empty($record) && $record == "true") {
 		//prepare the values
-			$default_language = 'en';
-			$default_dialect = 'us';
-			$default_voice = 'callie';
-			$switch_cmd = "conference ".$meeting_uuid."@".$_SESSION['domain_name']." play ".$_SESSION['switch']['sounds']['dir']."/".$default_language."/".$default_dialect."/".$default_voice."/ivr/ivr-recording_started.wav";
+		$default_language = 'en';
+		$default_dialect = 'us';
+		$default_voice = 'callie';
+		$switch_cmd = "conference ".$conference_room_uuid."@".$_SESSION['domain_name']." play ".$settings->get('switch', 'sounds')."/".$default_language."/".$default_dialect."/".$default_voice."/ivr/ivr-recording_started.wav";
+
 		//connect to event socket
-			$fp = event_socket_create($_SESSION['event_socket_ip_address'], $_SESSION['event_socket_port'], $_SESSION['event_socket_password']);
-			if ($fp) {
-				$switch_result = event_socket_request($fp, 'api '.$switch_cmd);
-			}
+		$esl = event_socket::create();
+		if ($esl->is_connected()) {
+			$switch_result = event_socket::api($switch_cmd);
+		}
 	}
 
-//generate the pins
+//generate the pin number length
 	$sql = "select conference_center_pin_length ";
 	$sql .= "from v_conference_centers ";
 	$sql .= "where domain_uuid = :domain_uuid ";
-	if (is_uuid($conference_center_uuid)) {
+	if (!empty($conference_center_uuid) && is_uuid($conference_center_uuid)) {
 		$sql .= "and conference_center_uuid = :conference_center_uuid ";
 		$parameters['conference_center_uuid'] = $conference_center_uuid;
 	}
 	$parameters['domain_uuid'] = $_SESSION['domain_uuid'];
-	$database = new database;
 	$row = $database->select($sql, $parameters, 'row');
-	if (is_array($row) && sizeof($row) != 0) {
+	if (!empty($row)) {
 		$pin_length = $row['conference_center_pin_length'];
 	}
 	unset($sql, $parameters);
-	if (strlen($moderator_pin) == 0) {
-		$moderator_pin = get_meeting_pin($pin_length, $meeting_uuid);
+
+//generate the pin numbers
+	$pin_length = (empty($pin_length)) ? '9' : $pin_length;
+	if (empty($moderator_pin)) {
+		$moderator_pin = get_conference_pin($pin_length, $conference_room_uuid ?? null);
 	}
-	if (strlen($participant_pin) == 0) {
-		$participant_pin = get_meeting_pin($pin_length, $meeting_uuid);
+	if (empty($participant_pin)) {
+		$participant_pin = get_conference_pin($pin_length, $conference_room_uuid ?? null);
 	}
 
 //delete the user
-	if ($_GET["a"] == "delete" && permission_exists('conference_room_delete')) {
-		if (strlen($_REQUEST["meeting_user_uuid"]) > 0) {
+	if (!empty($_GET["a"]) && $_GET["a"] == "delete" && permission_exists('conference_room_delete')) {
+		if (is_uuid($_REQUEST["conference_room_user_uuid"])) {
 			//set the variables
-				$meeting_user_uuid = $_REQUEST["meeting_user_uuid"];
+				$conference_room_user_uuid = $_REQUEST["conference_room_user_uuid"];
 				$conference_room_uuid = $_REQUEST["conference_room_uuid"];
+
 			//delete the extension from the ring_group
-				$array['meeting_users'][0]['meeting_user_uuid'] = $meeting_user_uuid;
-				$array['meeting_users'][0]['domain_uuid'] = $_SESSION['domain_uuid'];
-				$database = new database;
-				$database->app_name = 'conference_centers';
-				$database->app_uuid = '8d083f5a-f726-42a8-9ffa-8d28f848f10e';
+				$array['conference_room_users'][0]['conference_room_user_uuid'] = $conference_room_user_uuid;
+				$array['conference_room_users'][0]['domain_uuid'] = $_SESSION['domain_uuid'];
+
+			//un-assigne the users from the conference room
+				$p = permissions::new();
+				$p->add('conference_room_user_delete', 'temp');
+
 				$database->delete($array);
 				unset($array);
+
+				$p->delete('conference_room_user_delete', 'temp');
 		}
 
 		message::add($text['message-delete']);
-		header("Location: conference_room_edit.php?id=".escape($conference_room_uuid));
+		header("Location: conference_room_edit.php?id=".urlencode($conference_room_uuid).($query_string ? '&'.$query_string : ''));
 		return;
 	}
 
+//save the changes from the HTTP POST
+	if (!empty($_POST) && empty($_POST["persistformvar"])) {
 
-if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
+		//define the variable
+			$msg = '';
 
-	$msg = '';
-	if ($action == "update") {
-		$conference_room_uuid = $_POST["conference_room_uuid"];
-	}
+		//get the conference rooom ID
+			if ($action == "update") {
+				$conference_room_uuid = $_POST["conference_room_uuid"];
+			}
 
-	//validate the token
-		$token = new token;
-		if (!$token->validate($_SERVER['PHP_SELF'])) {
-			message::add($text['message-invalid_token'],'negative');
-			header('Location: conference_rooms.php');
-			exit;
-		}
+		//validate the token
+			$token = new token;
+			if (!$token->validate($_SERVER['PHP_SELF'])) {
+				message::add($text['message-invalid_token'],'negative');
+				header('Location: conference_rooms.php'.($query_string ? '?'.$query_string : ''));
+				exit;
+			}
 
-	//check for a unique pin number and length
-		if (strlen($moderator_pin) > 0 || strlen($participant_pin) > 0) {
-			//make sure the moderator pin number is unique
-				$sql = "select count(*) from v_meetings ";
-				$sql .= "where domain_uuid = :domain_uuid ";
-				if (is_uuid($meeting_uuid)) {
-					$sql .= "and meeting_uuid <> :meeting_uuid ";
-					$parameters['meeting_uuid'] = $meeting_uuid;
-				}
-				$sql .= "and (";
-				$sql .= "moderator_pin = :moderator_pin ";
-				$sql .= "or participant_pin = :moderator_pin ";
-				$sql .= ") ";
-				$parameters['domain_uuid'] = $_SESSION['domain_uuid'];
-				$parameters['moderator_pin'] = $moderator_pin;
-				$database = new database;
-				$num_rows = $database->select($sql, $parameters, 'column');
-				if ($num_rows > 0) {
-					$msg .= $text['message-unique_moderator_pin']."<br />\n";
-				}
-				unset($sql, $parameters);
+		//check for a unique pin number and length
+			if (strlen($moderator_pin) > 0 || !empty($participant_pin)) {
+				//make sure the moderator pin number is unique
+					$sql = "select count(*) from v_conference_rooms ";
+					$sql .= "where domain_uuid = :domain_uuid ";
+					$sql .= "and conference_room_uuid <> :conference_room_uuid ";
+					$sql .= "and (";
+					$sql .= "	moderator_pin = :moderator_pin ";
+					$sql .= "	or participant_pin = :moderator_pin ";
+					$sql .= ") ";
+					$parameters['domain_uuid'] = $_SESSION['domain_uuid'];
+					$parameters['moderator_pin'] = $moderator_pin;
+					$parameters['conference_room_uuid'] = $conference_room_uuid ?? null;
+					$num_rows = $database->select($sql, $parameters, 'column');
+					if ($num_rows > 0) {
+						$msg .= $text['message-unique_moderator_pin']."<br />\n";
+					}
+					unset($sql, $parameters);
 
-			//make sure the participant pin number is unique
-				$sql = "select count(*) from v_meetings ";
-				$sql .= "where domain_uuid = :domain_uuid ";
-				if (is_uuid($meeting_uuid)) {
-					$sql .= "and meeting_uuid <> :meeting_uuid ";
-					$parameters['meeting_uuid'] = $meeting_uuid;
-				}
-				$sql .= "and (";
-				$sql .= "moderator_pin = :participant_pin ";
-				$sql .= "or participant_pin = :participant_pin ";
-				$sql .= ") ";
-				$parameters['domain_uuid'] = $_SESSION['domain_uuid'];
-				$parameters['participant_pin'] = $participant_pin;
-				$num_rows = $database->select($sql, $parameters, 'column');
-				if ($num_rows > 0) {
-					$msg .= $text['message-unique_participant_pin']."<br />\n";
-				}
-				unset($sql, $parameters);
+				//make sure the participant pin number is unique
+					$sql = "select count(*) from v_conference_rooms ";
+					$sql .= "where domain_uuid = :domain_uuid ";
+					$sql .= "and conference_room_uuid <> :conference_room_uuid ";
+					$sql .= "and (";
+					$sql .= "	moderator_pin = :participant_pin ";
+					$sql .= "	or participant_pin = :participant_pin ";
+					$sql .= ") ";
+					$parameters['domain_uuid'] = $_SESSION['domain_uuid'];
+					$parameters['participant_pin'] = $participant_pin;
+					$parameters['conference_room_uuid'] = $conference_room_uuid ?? null;
+					$num_rows = $database->select($sql, $parameters, 'column');
+					if ($num_rows > 0) {
+						$msg .= $text['message-unique_participant_pin']."<br />\n";
+					}
+					unset($sql, $parameters);
 
-			//additional checks
-				if ($moderator_pin == $participant_pin) {
-					$msg .= $text['message-non_unique_pin']."<br />\n";
-				}
-				if (strlen($moderator_pin) < $pin_length || strlen($participant_pin) < $pin_length) {
-					$msg .= $text['message-minimum_pin_length']." ".$pin_length."<br />\n";
-				}
-		}
+				//additional checks
+					if ($moderator_pin == $participant_pin) {
+						$msg .= $text['message-non_unique_pin']."<br />\n";
+					}
+					if (strlen($moderator_pin) < $pin_length || strlen($participant_pin) < $pin_length) {
+						$msg .= $text['message-minimum_pin_length']." ".$pin_length."<br />\n";
+					}
+			}
 
-	//check for all required data
-		//if (strlen($conference_center_uuid) == 0) { $msg .= "Please provide: Conference UUID<br>\n"; }
-		//if (strlen($max_members) == 0) { $msg .= "Please provide: Max Members<br>\n"; }
-		//if (strlen($start_datetime) == 0) { $msg .= "Please provide: Start Date/Time<br>\n"; }
-		//if (strlen($stop_datetime) == 0) { $msg .= "Please provide: Stop Date/Time<br>\n"; }
-		//if (strlen($wait_mod) == 0) { $msg .= "Please provide: Wait for the Moderator<br>\n"; }
-		//if (strlen($profile) == 0) { $msg .= "Please provide: Conference Profile<br>\n"; }
-		//if (strlen($announce) == 0) { $msg .= "Please provide: Announce<br>\n"; }
-		//if (strlen($enter_sound) == 0) { $msg .= "Please provide: Enter Sound<br>\n"; }
-		//if (strlen($mute) == 0) { $msg .= "Please provide: Mute<br>\n"; }
-		//if (strlen($sounds) == 0) { $msg .= "Please provide: Sounds<br>\n"; }
-		//if (strlen($created) == 0) { $msg .= "Please provide: Created<br>\n"; }
-		//if (strlen($created_by) == 0) { $msg .= "Please provide: Created By<br>\n"; }
-		//if (strlen($enabled) == 0) { $msg .= "Please provide: Enabled<br>\n"; }
-		//if (strlen($description) == 0) { $msg .= "Please provide: Description<br>\n"; }
-		if (strlen($msg) > 0 && strlen($_POST["persistformvar"]) == 0) {
-			$document['title'] = $text['title-conference_room'];
-			require_once "resources/header.php";
-			require_once "resources/persist_form_var.php";
-			echo "<div align='center'>\n";
-			echo "<table><tr><td>\n";
-			echo $msg."<br />";
-			echo "</td></tr></table>\n";
-			persistformvar($_POST);
-			echo "</div>\n";
-			require_once "resources/footer.php";
-			exit;
-		}
+		//check for all required data
+			//if (empty($conference_center_uuid)) { $msg .= "Please provide: Conference UUID<br>\n"; }
+			//if (empty($max_members)) { $msg .= "Please provide: Max Members<br>\n"; }
+			//if (empty($start_datetime)) { $msg .= "Please provide: Start Date/Time<br>\n"; }
+			//if (empty($stop_datetime)) { $msg .= "Please provide: Stop Date/Time<br>\n"; }
+			//if (empty($wait_mod)) { $msg .= "Please provide: Wait for the Moderator<br>\n"; }
+			//if (empty($profile)) { $msg .= "Please provide: Conference Profile<br>\n"; }
+			//if (empty($announce)) { $msg .= "Please provide: Announce<br>\n"; }
+			//if (empty($enter_sound)) { $msg .= "Please provide: Enter Sound<br>\n"; }
+			//if (empty($mute)) { $msg .= "Please provide: Mute<br>\n"; }
+			//if (empty($sounds)) { $msg .= "Please provide: Sounds<br>\n"; }
+			//if (empty($created)) { $msg .= "Please provide: Created<br>\n"; }
+			//if (empty($created_by)) { $msg .= "Please provide: Created By<br>\n"; }
+			//if (empty($enabled)) { $msg .= "Please provide: Enabled<br>\n"; }
+			//if (empty($description)) { $msg .= "Please provide: Description<br>\n"; }
+			if (!empty($msg) && empty($_POST["persistformvar"])) {
+				$document['title'] = $text['title-conference_room'];
+				require_once "resources/header.php";
+				require_once "resources/persist_form_var.php";
+				echo "<div align='center'>\n";
+				echo "<table><tr><td>\n";
+				echo $msg."<br />";
+				echo "</td></tr></table>\n";
+				persistformvar($_POST);
+				echo "</div>\n";
+				require_once "resources/footer.php";
+				exit;
+			}
 
-	//add or update the database
-		if ($_POST["persistformvar"] != "true") {
+		//add or update the database
+			if (empty($_POST["persistformvar"])) {
 
-			if ($action == "add" && permission_exists('conference_room_add')) {
-				//set default values
-					if (strlen($profile) == 0) { $profile = 'default'; }
-					if (strlen($record) == 0) { $record = 'false'; }
-					if (strlen($max_members) == 0) { $max_members = 0; }
-					if (strlen($wait_mod) == 0) { $wait_mod = 'true'; }
-					if (strlen($moderator_endconf) == 0) { $moderator_endconf = 'false'; }
-					if (strlen($announce_name) == 0) { $announce_name = 'true'; }
-					if (strlen($announce_recording) == 0) { $announce_recording = 'true'; }
-					if (strlen($announce_count) == 0) { $announce_count = 'true'; }
-					if (strlen($mute) == 0) { $mute = 'false'; }
-					if (strlen($enabled) == 0) { $enabled = 'true'; }
-					if (strlen($sounds) == 0) { $sounds = 'false'; }
+				if ($action == "add" && permission_exists('conference_room_add')) {
+					//add a conference room
+						$conference_room_uuid = uuid();
+						$array['conference_rooms'][0]['conference_room_uuid'] = $conference_room_uuid;
+						$array['conference_rooms'][0]['conference_center_uuid'] = $conference_center_uuid;
+						$array['conference_rooms'][0]['domain_uuid'] = $_SESSION['domain_uuid'];
+						$array['conference_rooms'][0]['conference_room_name'] = $conference_room_name;
+						$array['conference_rooms'][0]['profile'] = $profile;
+						$array['conference_rooms'][0]['record'] = $record;
+						$array['conference_rooms'][0]['moderator_pin'] = $moderator_pin;
+						$array['conference_rooms'][0]['participant_pin'] = $participant_pin;
+						$array['conference_rooms'][0]['max_members'] = $max_members;
+						$array['conference_rooms'][0]['start_datetime'] = $start_datetime;
+						$array['conference_rooms'][0]['stop_datetime'] = $stop_datetime;
+						$array['conference_rooms'][0]['wait_mod'] = $wait_mod;
+						$array['conference_rooms'][0]['moderator_endconf'] = $moderator_endconf;
+						$array['conference_rooms'][0]['announce_name'] = $announce_name;
+						$array['conference_rooms'][0]['announce_recording'] = $announce_recording;
+						$array['conference_rooms'][0]['announce_count'] = $announce_count;
+						$array['conference_rooms'][0]['sounds'] = $sounds;
+						$array['conference_rooms'][0]['mute'] = $mute;
+						$array['conference_rooms'][0]['created'] = 'now()';
+						$array['conference_rooms'][0]['created_by'] = $_SESSION['user_uuid'];
+						if (permission_exists('conference_room_email_address')) {
+							$array['conference_rooms'][0]['email_address'] = $email_address;
+						}
+						if (permission_exists('conference_room_account_code')) {
+							$array['conference_rooms'][0]['account_code'] = $account_code;
+						}
+						$array['conference_rooms'][0]['enabled'] = $enabled;
+						$array['conference_rooms'][0]['description'] = $description;
 
-				//add a meeting
-					$meeting_uuid = uuid();
-					$array['meetings'][0]['meeting_uuid'] = $meeting_uuid;
-					$array['meetings'][0]['domain_uuid'] = $_SESSION['domain_uuid'];
-					$array['meetings'][0]['moderator_pin'] = $moderator_pin;
-					$array['meetings'][0]['participant_pin'] = $participant_pin;
-					$array['meetings'][0]['enabled'] = $enabled;
-					$array['meetings'][0]['description'] = $description;
-
-					$p = new permissions;
-					$p->add('meeting_add', 'temp');
-
-					$database = new database;
-					$database->app_name = 'conference_centers';
-					$database->app_uuid = '8d083f5a-f726-42a8-9ffa-8d28f848f10e';
-					$database->save($array);
-					unset($array);
-
-					$p->delete('meeting_add', 'temp');
-
-				//add a conference room
-					$conference_room_uuid = uuid();
-					$array['conference_rooms'][0]['conference_room_uuid'] = $conference_room_uuid;
-					$array['conference_rooms'][0]['conference_center_uuid'] = $conference_center_uuid;
-					$array['conference_rooms'][0]['domain_uuid'] = $_SESSION['domain_uuid'];
-					$array['conference_rooms'][0]['meeting_uuid'] = $meeting_uuid;
-					$array['conference_rooms'][0]['conference_room_name'] = $conference_room_name;
-					$array['conference_rooms'][0]['profile'] = $profile;
-					$array['conference_rooms'][0]['record'] = $record;
-					$array['conference_rooms'][0]['max_members'] = $max_members;
-					$array['conference_rooms'][0]['start_datetime'] = $start_datetime;
-					$array['conference_rooms'][0]['stop_datetime'] = $stop_datetime;
-					$array['conference_rooms'][0]['wait_mod'] = $wait_mod;
-					$array['conference_rooms'][0]['moderator_endconf'] = $moderator_endconf;
-					$array['conference_rooms'][0]['announce_name'] = $announce_name;
-					$array['conference_rooms'][0]['announce_recording'] = $announce_recording;
-					$array['conference_rooms'][0]['announce_count'] = $announce_count;
-					$array['conference_rooms'][0]['sounds'] = $sounds;
-					$array['conference_rooms'][0]['mute'] = $mute;
-					$array['conference_rooms'][0]['created'] = 'now()';
-					$array['conference_rooms'][0]['created_by'] = $_SESSION['user_uuid'];
-					$array['conference_rooms'][0]['enabled'] = $enabled;
-					$array['conference_rooms'][0]['description'] = $description;
-
-					$database = new database;
-					$database->app_name = 'conference_centers';
-					$database->app_uuid = '8d083f5a-f726-42a8-9ffa-8d28f848f10e';
-					$database->save($array);
-					unset($array);
-
-				//assign the logged in user to the meeting
-					if (is_uuid($_SESSION["user_uuid"])) {
-						$meeting_user_uuid = uuid();
-						$array['meeting_users'][0]['meeting_user_uuid'] = $meeting_user_uuid;
-						$array['meeting_users'][0]['domain_uuid'] = $_SESSION['domain_uuid'];
-						$array['meeting_users'][0]['meeting_uuid'] = $meeting_uuid;
-						$array['meeting_users'][0]['user_uuid'] = $_SESSION["user_uuid"];
-
-						$p = new permissions;
-						$p->add('meeting_user_add', 'temp');
-
-						$database = new database;
-						$database->app_name = 'conference_centers';
-						$database->app_uuid = '8d083f5a-f726-42a8-9ffa-8d28f848f10e';
 						$database->save($array);
 						unset($array);
 
-						$p->delete('meeting_user_add', 'temp');
-					}
+					//assign the logged in user to the conference room
+						if (is_uuid($_SESSION["user_uuid"])) {
+							$conference_room_user_uuid = uuid();
+							$array['conference_room_users'][0]['conference_room_user_uuid'] = $conference_room_user_uuid;
+							$array['conference_room_users'][0]['domain_uuid'] = $_SESSION['domain_uuid'];
+							$array['conference_room_users'][0]['conference_room_uuid'] = $conference_room_uuid;
+							$array['conference_room_users'][0]['user_uuid'] = $_SESSION["user_uuid"];
 
-				message::add($text['message-add']);
-			}
+							$p = permissions::new();
+							$p->add('conference_room_user_add', 'temp');
 
-			if ($action == "update" && permission_exists('conference_room_edit')) {
-				//get the meeting_uuid
-					if (count($_GET) > 0 && $_POST["persistformvar"] != "true") {
-						$conference_room_uuid = $_GET["id"];
-						$sql = "select * from v_conference_rooms ";
-						$sql .= "where domain_uuid = :domain_uuid ";
-						$sql .= "and conference_room_uuid = :conference_room_uuid ";
-						$parameters['domain_uuid'] = $_SESSION['domain_uuid'];
-						$parameters['conference_room_uuid'] = $conference_room_uuid;
-						$database = new database;
-						$row = $database->select($sql, $parameters, 'row');
-						if (is_array($row) && sizeof($row) != 0) {
-							$meeting_uuid = $row["meeting_uuid"];
+							$database->save($array);
+							unset($array);
+
+							$p->delete('conference_room_user_add', 'temp');
 						}
-						unset($sql, $parameters, $row);
-					}
 
-				//update conference meetings
-					$array['meetings'][0]['meeting_uuid'] = $meeting_uuid;
-					$array['meetings'][0]['domain_uuid'] = $_SESSION['domain_uuid'];
-					$array['meetings'][0]['moderator_pin'] = $moderator_pin;
-					$array['meetings'][0]['participant_pin'] = $participant_pin;
-					$array['meetings'][0]['enabled'] = $enabled;
-					$array['meetings'][0]['description'] = $description;
+					//add the message
+						message::add($text['message-add']);
+				}
 
-					$p = new permissions;
-					$p->add('meeting_edit', 'temp');
+				if ($action == "update" && permission_exists('conference_room_edit')) {
 
-					$database = new database;
-					$database->app_name = 'conference_centers';
-					$database->app_uuid = '8d083f5a-f726-42a8-9ffa-8d28f848f10e';
-					$database->save($array);
-					unset($array);
+					//update the conference room
+						$array['conference_rooms'][0]['conference_room_uuid'] = $conference_room_uuid;
+						$array['conference_rooms'][0]['domain_uuid'] = $_SESSION['domain_uuid'];
+						$array['conference_rooms'][0]['conference_center_uuid'] = $conference_center_uuid;
+						$array['conference_rooms'][0]['conference_room_name'] = $conference_room_name;
+						if (!empty($profile)) {
+							$array['conference_rooms'][0]['profile'] = $profile;
+						}
+						if (!empty($record)) {
+							$array['conference_rooms'][0]['record'] = $record;
+						}
+						$array['conference_rooms'][0]['moderator_pin'] = $moderator_pin;
+						$array['conference_rooms'][0]['participant_pin'] = $participant_pin;
+						if (isset($max_members)) {
+							$array['conference_rooms'][0]['max_members'] = $max_members;
+						}
+						$array['conference_rooms'][0]['start_datetime'] = $start_datetime;
+						$array['conference_rooms'][0]['stop_datetime'] = $stop_datetime;
+						if (!empty($wait_mod)) {
+							$array['conference_rooms'][0]['wait_mod'] = $wait_mod;
+						}
+						if (!empty($moderator_endconf)) {
+							$array['conference_rooms'][0]['moderator_endconf'] = $moderator_endconf;
+						}
+						if (!empty($announce_name)) {
+							$array['conference_rooms'][0]['announce_name'] = $announce_name;
+						}
+						if (!empty($announce_name)) {
+							$array['conference_rooms'][0]['announce_recording'] = $announce_recording;
+						}
+						if (!empty($announce_name)) {
+							$array['conference_rooms'][0]['announce_count'] = $announce_count;
+						}
+						if (!empty($mute)) {
+							$array['conference_rooms'][0]['mute'] = $mute;
+						}
+						$array['conference_rooms'][0]['sounds'] = $sounds;
+						if (permission_exists('conference_room_email_address')) {
+							$array['conference_rooms'][0]['email_address'] = $email_address;
+						}
+						if (permission_exists('conference_room_account_code')) {
+							$array['conference_rooms'][0]['account_code'] = $account_code;
+						}
+						if (!empty($enabled)) {
+							$array['conference_rooms'][0]['enabled'] = $enabled;
+						}
+						$array['conference_rooms'][0]['description'] = $description;
 
-					$p->delete('meeting_edit', 'temp');
+						$database->save($array);
+						unset($array);
 
-				//update the conference room
-					$array['conference_rooms'][0]['conference_room_uuid'] = $conference_room_uuid;
-					$array['conference_rooms'][0]['domain_uuid'] = $_SESSION['domain_uuid'];
-					$array['conference_rooms'][0]['conference_center_uuid'] = $conference_center_uuid;
-					$array['conference_rooms'][0]['conference_room_name'] = $conference_room_name;
-					if (strlen($profile) > 0) {
-						$array['conference_rooms'][0]['profile'] = $profile;
-					}
-					if (strlen($record) > 0) {
-						$array['conference_rooms'][0]['record'] = $record;
-					}
-					if (strlen($max_members) > 0) {
-						$array['conference_rooms'][0]['max_members'] = $max_members;
-					}
-					$array['conference_rooms'][0]['start_datetime'] = $start_datetime;
-					$array['conference_rooms'][0]['stop_datetime'] = $stop_datetime;
-					if (strlen($wait_mod) > 0) {
-						$array['conference_rooms'][0]['wait_mod'] = $wait_mod;
-					}
-					if (strlen($moderator_endconf) > 0) {
-						$array['conference_rooms'][0]['moderator_endconf'] = $moderator_endconf;
-					}
-					if (strlen($announce_name) > 0) {
-						$array['conference_rooms'][0]['announce_name'] = $announce_name;
-					}
-					if (strlen($announce_name) > 0) {
-						$array['conference_rooms'][0]['announce_recording'] = $announce_recording;
-					}
-					if (strlen($announce_name) > 0) {
-						$array['conference_rooms'][0]['announce_count'] = $announce_count;
-					}
-					if (strlen($mute) > 0) {
-						$array['conference_rooms'][0]['mute'] = $mute;
-					}
-					$array['conference_rooms'][0]['sounds'] = $sounds;
-					if (strlen($enabled) > 0) {
-						$array['conference_rooms'][0]['enabled'] = $enabled;
-					}
-					$array['conference_rooms'][0]['description'] = $description;
+					//set message
+						message::add($text['message-update']);
+				}
 
-					$database = new database;
-					$database->app_name = 'conference_centers';
-					$database->app_uuid = '8d083f5a-f726-42a8-9ffa-8d28f848f10e';
-					$database->save($array);
-					unset($array);
-
-				//set message
-					message::add($text['message-update']);
-			}
-
-			//assign the user to the meeting
+				//assign the user to the conference room
 				if (is_uuid($user_uuid)) {
-					$meeting_user_uuid = uuid();
-					$array['meeting_users'][0]['meeting_user_uuid'] = $meeting_user_uuid;
-					$array['meeting_users'][0]['domain_uuid'] = $_SESSION['domain_uuid'];
-					$array['meeting_users'][0]['meeting_uuid'] = $meeting_uuid;
-					$array['meeting_users'][0]['user_uuid'] = $user_uuid;
+					$conference_room_user_uuid = uuid();
+					$array['conference_room_users'][0]['conference_room_user_uuid'] = $conference_room_user_uuid;
+					$array['conference_room_users'][0]['domain_uuid'] = $_SESSION['domain_uuid'];
+					$array['conference_room_users'][0]['conference_room_uuid'] = $conference_room_uuid;
+					$array['conference_room_users'][0]['user_uuid'] = $user_uuid;
 
-					$p = new permissions;
-					$p->add('meeting_user_add', 'temp');
+					$p = permissions::new();
+					$p->add('conference_room_user_add', 'temp');
 
-					$database = new database;
-					$database->app_name = 'conference_centers';
-					$database->app_uuid = '8d083f5a-f726-42a8-9ffa-8d28f848f10e';
 					$database->save($array);
 					unset($array);
 
-					$p->delete('meeting_user_add', 'temp');
+					$p->delete('conference_room_user_add', 'temp');
 
 					message::add($text['message-add']);
 				}
 
-			//redirect
-				header("Location: conference_room_edit.php?id=".escape($conference_room_uuid));
+				//redirect
+				header("Location: conference_room_edit.php?id=".urlencode($conference_room_uuid).($query_string ? '&'.$query_string : ''));
 				exit;
-
-		}
-}
+			}
+	}
 
 //pre-populate the form
-	if (count($_GET) > 0 && $_POST["persistformvar"] != "true") {
+	if (!empty($_GET) && empty($_POST["persistformvar"])) {
 		//get the conference room details
 			$conference_room_uuid = $_REQUEST["id"];
-			$sql = "select * from v_conference_rooms as r, v_meetings as m ";
-			$sql .= "where r.domain_uuid = :domain_uuid ";
-			$sql .= "and r.meeting_uuid = m.meeting_uuid ";
-			$sql .= "and r.conference_room_uuid = :conference_room_uuid ";
+			$sql = "select * from v_conference_rooms ";
+			$sql .= "where domain_uuid = :domain_uuid ";
+			$sql .= "and conference_room_uuid = :conference_room_uuid ";
 			$parameters['domain_uuid'] = $_SESSION['domain_uuid'];
 			$parameters['conference_room_uuid'] = $conference_room_uuid;
-			$database = new database;
-			$row = $database->select($sql, $parameters, 'row');
-			if (is_array($row) && sizeof($row) != 0) {
+			$row = $database->select($sql, $parameters ?? null, 'row');
+			if (!empty($row)) {
 				$conference_center_uuid = $row["conference_center_uuid"];
-				$meeting_uuid = $row["meeting_uuid"];
-				$moderator_pin = $row["moderator_pin"];
-				$participant_pin = $row["participant_pin"];
 				$conference_room_name = $row["conference_room_name"];
 				$profile = $row["profile"];
 				$record = $row["record"];
+				$moderator_pin = $row["moderator_pin"];
+				$participant_pin = $row["participant_pin"];
 				$max_members = $row["max_members"];
 				$start_datetime = $row["start_datetime"];
 				$stop_datetime = $row["stop_datetime"];
@@ -516,27 +500,40 @@ if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
 				$mute = $row["mute"];
 				$created = $row["created"];
 				$created_by = $row["created_by"];
+				$email_address = $row["email_address"];
+				$account_code = $row["account_code"];
 				$enabled = $row["enabled"];
 				$description = $row["description"];
 			}
 			unset($sql, $parameters, $row);
 	}
 
-//get the users assigned to this meeting
-	$sql = "select u.username, u.user_uuid, m.meeting_user_uuid ";
-	$sql .= "from v_users as u, v_meeting_users as m ";
-	$sql .= "where u.user_uuid = m.user_uuid  ";
-	$sql .= "and m.domain_uuid = :domain_uuid ";
-	$sql .= "and m.meeting_uuid = :meeting_uuid ";
+//set the defaults
+	$profile = $profile ?? 'default';
+	$record = $record ?? false;
+	$wait_mod = $wait_mod ?? true;
+	$moderator_endconf = $moderator_endconf ?? false;
+	$announce_name = $announce_name ?? true;
+	$announce_count = $announce_count ?? true;
+	$announce_recording = $announce_recording ?? true;
+	$mute = $mute ?? false;
+	$enabled = $enabled ?? true;
+	$sounds = $sounds ?? false;
+
+//get the users assigned to this conference room
+	$sql = "select u.username, u.user_uuid, r.conference_room_user_uuid ";
+	$sql .= "from v_users as u, v_conference_room_users as r ";
+	$sql .= "where u.user_uuid = r.user_uuid  ";
+	$sql .= "and r.domain_uuid = :domain_uuid ";
+	$sql .= "and r.conference_room_uuid = :conference_room_uuid ";
 	$sql .= "order by u.username asc ";
 	$parameters['domain_uuid'] = $_SESSION['domain_uuid'];
-	$parameters['meeting_uuid'] = $meeting_uuid;
-	$database = new database;
-	$rows = $database->select($sql, $parameters, 'all');
-	if (is_array($rows) && @sizeof($rows) != 0) {
+	$parameters['conference_room_uuid'] = $conference_room_uuid ?? '';
+	$rows = $database->select($sql, $parameters ?? null, 'all');
+	if (!empty($rows)) {
 		foreach ($rows as $row) {
-			$meeting_users[$row['user_uuid']]['username'] = $row['username'];
-			$meeting_users[$row['user_uuid']]['meeting_user_uuid'] = $row['meeting_user_uuid'];
+			$conference_room_users[$row['user_uuid']]['username'] = $row['username'];
+			$conference_room_users[$row['user_uuid']]['conference_room_user_uuid'] = $row['conference_room_user_uuid'];
 		}
 	}
 	unset($sql, $parameters);
@@ -544,24 +541,20 @@ if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
 //get the users array
 	$sql = "select user_uuid, username from v_users ";
 	$sql .= "where domain_uuid = :domain_uuid ";
-	if (is_array($meeting_users) && @sizeof($meeting_users) != 0) {
-		$sql .= "and user_uuid not in ('".implode("','", array_keys($meeting_users))."') ";
+	if (!empty($conference_room_users)) {
+		$sql .= "and user_uuid not in ('".implode("','", array_keys($conference_room_users))."') ";
 	}
 	$sql .= "order by username asc ";
 	$parameters['domain_uuid'] = $_SESSION['domain_uuid'];
-	$database = new database;
-	$users = $database->select($sql, $parameters, 'all');
+	$users = $database->select($sql, $parameters ?? null, 'all');
 	unset($sql, $parameters);
 
-//set default profile
-	if (strlen($profile) == 0) { $profile = 'default'; }
-
 //get default pins
-	if (strlen($moderator_pin) == 0) {
-		$moderator_pin = get_meeting_pin($pin_length, $meeting_uuid);
+	if (empty($moderator_pin)) {
+		$moderator_pin = get_conference_pin($pin_length ?? '', $conference_room_uuid ?? '');
 	}
-	if (strlen($participant_pin) == 0) {
-		$participant_pin = get_meeting_pin($pin_length, $meeting_uuid);
+	if (empty($participant_pin)) {
+		$participant_pin = get_conference_pin($pin_length ?? '', $conference_room_uuid ?? '');
 	}
 
 //format the pins
@@ -571,18 +564,6 @@ if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
 	if (strlen($participant_pin) == 9)  {
 		$participant_pin = substr($participant_pin, 0, 3) ."-".  substr($participant_pin, 3, 3) ."-". substr($participant_pin, -3)."\n";
 	}
-
-//set default values
-	if (strlen($record) == 0) { $record = 'false'; }
-	if (strlen($max_members) == 0) { $max_members = 0; }
-	if (strlen($wait_mod) == 0) { $wait_mod = 'true'; }
-	if (strlen($moderator_endconf) == 0) { $moderator_endconf = 'false'; }
-	if (strlen($announce_name) == 0) { $announce_name = 'true'; }
-	if (strlen($announce_recording) == 0) { $announce_recording = 'true'; }
-	if (strlen($announce_count) == 0) { $announce_count = 'true'; }
-	if (strlen($mute) == 0) { $mute = 'false'; }
-	if (strlen($sounds) == 0) { $sounds = 'false'; }
-	if (strlen($enabled) == 0) { $enabled = 'true'; }
 
 //create token
 	$object = new token;
@@ -598,28 +579,33 @@ if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
 	echo "<div class='action_bar' id='action_bar'>\n";
 	echo "	<div class='heading'><b>".$text['title-conference_room']."</b></div>\n";
 	echo "	<div class='actions'>\n";
-	echo button::create(['type'=>'button','label'=>$text['button-back'],'icon'=>$_SESSION['theme']['button_icon_back'],'id'=>'btn_back','link'=>'conference_rooms.php']);
-	if (is_uuid($meeting_uuid)) {
-		echo button::create(['type'=>'button','label'=>$text['button-view'],'icon'=>$_SESSION['theme']['button_icon_view'],'style'=>'margin-left: 15px;','link'=>'../conferences_active/conference_interactive.php?c='.urlencode($meeting_uuid)]);
-		echo button::create(['type'=>'button','label'=>$text['button-sessions'],'icon'=>'list','link'=>'conference_sessions.php?id='.urlencode($meeting_uuid)]);
+	echo button::create(['type'=>'button','label'=>$text['button-back'],'icon'=>$settings->get('theme', 'button_icon_back'),'id'=>'btn_back','link'=>'conference_rooms.php'.($query_string ? '?'.$query_string : '')]);
+	if (!empty($conference_room_uuid) && is_uuid($conference_room_uuid)) {
+		if (permission_exists('conference_interactive_view')) {
+			echo button::create(['type'=>'button','label'=>$text['button-view'],'icon'=>$settings->get('theme', 'button_icon_view'),'style'=>'margin-left: 15px;','link'=>'../conferences_active/conference_interactive.php?c='.urlencode($conference_room_uuid)]);
+		}
+		else if (permission_exists('conference_active_view')) {
+			echo button::create(['type'=>'button','label'=>$text['button-view'],'icon'=>$settings->get('theme', 'button_icon_view'),'style'=>'margin-left: 15px;','link'=>'../conferences_active/conferences_active.php']);
+		}
+		if (permission_exists('conference_session_view')) {
+			echo button::create(['type'=>'button','label'=>$text['button-sessions'],'icon'=>'list','link'=>'conference_sessions.php?id='.urlencode($conference_room_uuid)]);
+		}
 	}
-	echo button::create(['type'=>'submit','label'=>$text['button-save'],'icon'=>$_SESSION['theme']['button_icon_save'],'id'=>'btn_save','style'=>'margin-left: 15px;']);
+	echo button::create(['type'=>'submit','label'=>$text['button-save'],'icon'=>$settings->get('theme', 'button_icon_save'),'id'=>'btn_save','style'=>'margin-left: 15px;']);
 	echo "	</div>\n";
 	echo "	<div style='clear: both;'></div>\n";
 	echo "</div>\n";
 
+	echo "<div class='card'>\n";
 	echo "<table width='100%' border='0' cellpadding='0' cellspacing='0'>\n";
 
 	echo "<tr>\n";
 	echo "<td width='30%' class='vncell' valign='top' align='left' nowrap='nowrap'>".$text['label-conference_name']."</td>\n";
 	echo "<td width='70%' class='vtable' align='left'>\n";
 	echo "	<select class='formfld' name='conference_center_uuid'>\n";
-	foreach ($conference_centers as &$row) {
-		if ($conference_center_uuid == $row["conference_center_uuid"]) {
-			echo "		<option value='".escape($row["conference_center_uuid"])."' selected='selected'>".escape($row["conference_center_name"])."</option>\n";
-		}
-		else {
-			echo "		<option value='".escape($row["conference_center_uuid"])."'>".escape($row["conference_center_name"])."</option>\n";
+	if (!empty($conference_centers) && is_array($conference_centers) && @sizeof($conference_centers) != 0) {
+		foreach ($conference_centers as $row) {
+			echo "		<option value='".escape($row["conference_center_uuid"])."' ".(!empty($conference_center_uuid) && $conference_center_uuid == $row["conference_center_uuid"] ? "selected='selected'" : null).">".escape($row["conference_center_name"])."</option>\n";
 		}
 	}
 	echo "	</select>\n";
@@ -640,7 +626,7 @@ if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
 	echo "	<tr>";
 	echo "		<td class='vncell' valign='top'>".$text['label-moderator-pin']."</td>";
 	echo "		<td class='vtable' align='left'>";
-	echo "  		<input class='formfld' type='number' name='moderator_pin' maxlength='255' value='".escape($moderator_pin)."'>\n";
+	echo "  		<input class='formfld' type='text' name='moderator_pin' maxlength='255' value='".escape($moderator_pin)."'>\n";
 	echo "			<br />\n";
 	echo "			".$text['description-moderator_pin']."\n";
 	echo "		</td>";
@@ -649,24 +635,24 @@ if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
 	echo "	<tr>";
 	echo "		<td class='vncell' valign='top'>".$text['label-participant-pin']."</td>";
 	echo "		<td class='vtable' align='left'>";
-	echo "  		<input class='formfld' type='number' name='participant_pin' maxlength='255' value='".escape($participant_pin)."'>\n";
+	echo "  		<input class='formfld' type='text' name='participant_pin' maxlength='255' value='".escape($participant_pin)."'>\n";
 	echo "			<br />\n";
 	echo "			".$text['description-participant-pin']."\n";
 	echo "		</td>";
 	echo "	</tr>";
 
-	if (if_group("superadmin") || if_group("admin")) {
+	if (permission_exists('conference_room_edit')) {
 		echo "	<tr>";
 		echo "		<td class='vncell' valign='top'>".$text['label-users']."</td>";
 		echo "		<td class='vtable' align='left'>";
-		if ($action == "update" && is_array($meeting_users) && @sizeof($meeting_users) != 0) {
+		if ($action == "update" && is_array($conference_room_users) && @sizeof($conference_room_users) != 0) {
 			echo "			<table border='0' style='width : 235px;'>\n";
-			foreach ($meeting_users as $user_uuid => $meeting_user) {
+			foreach ($conference_room_users as $user_uuid => $row) {
 				echo "			<tr>\n";
-				echo "				<td class='vtable'>".escape($meeting_user['username'])."</td>\n";
+				echo "				<td class='vtable'>".escape($row['username'])."</td>\n";
 				echo "				<td style='width: 25px;' align='right'>\n";
 				if (permission_exists('conference_room_delete')) {
-					echo "					<a href='conference_room_edit.php?meeting_user_uuid=".escape($meeting_user['meeting_user_uuid'])."&conference_room_uuid=".escape($conference_room_uuid)."&a=delete' alt='delete' onclick=\"return confirm(".$text['confirm-delete'].")\">$v_link_label_delete</a>\n";
+					echo "					<a href='conference_room_edit.php?conference_room_user_uuid=".urlencode($row['conference_room_user_uuid'])."&conference_room_uuid=".urlencode($conference_room_uuid)."&a=delete' alt='delete' onclick=\"return confirm(".$text['confirm-delete'].")\">$v_link_label_delete</a>\n";
 				}
 				echo "				</td>\n";
 				echo "			</tr>\n";
@@ -682,7 +668,7 @@ if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
 			}
 			echo "			</select>";
 			if ($action == "update") {
-				echo button::create(['type'=>'submit','label'=>$text['button-add'],'icon'=>$_SESSION['theme']['button_icon_add']]);
+				echo button::create(['type'=>'submit','label'=>$text['button-add'],'icon'=>$settings->get('theme', 'button_icon_add')]);
 			}
 			unset($users);
 			echo "			<br>\n";
@@ -716,21 +702,17 @@ if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
 		echo "<tr>\n";
 		echo "<td class='vncell' valign='top' align='left' nowrap='nowrap'>".$text['label-record']."</td>\n";
 		echo "<td class='vtable' align='left'>\n";
-		echo "	<select class='formfld' name='record'>\n";
-		echo "	<option value=''></option>\n";
-		if ($record == "true") {
-			echo "	<option value='true' selected='selected'>".$text['label-true']."</option>\n";
+		if ($input_toggle_style_switch) {
+			echo "	<span class='switch'>\n";
 		}
-		else {
-			echo "	<option value='true'>".$text['label-true']."</option>\n";
+		echo "		<select class='formfld' id='record' name='record'>\n";
+		echo "			<option value='true' ".($record == true ? "selected='selected'" : null).">".$text['option-true']."</option>\n";
+		echo "			<option value='false' ".($record == false ? "selected='selected'" : null).">".$text['option-false']."</option>\n";
+		echo "		</select>\n";
+		if ($input_toggle_style_switch) {
+			echo "		<span class='slider'></span>\n";
+			echo "	</span>\n";
 		}
-		if ($record == "false") {
-			echo "	<option value='false' selected='selected'>".$text['label-false']."</option>\n";
-		}
-		else {
-			echo "	<option value='false'>".$text['label-false']."</option>\n";
-		}
-		echo "	</select>\n";
 		echo "<br />\n";
 		echo "</td>\n";
 		echo "</tr>\n";
@@ -760,21 +742,17 @@ if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
 		echo "<tr>\n";
 		echo "<td class='vncell' valign='top' align='left' nowrap='nowrap'>".$text['label-wait_for_moderator']."</td>\n";
 		echo "<td class='vtable' align='left'>\n";
-		echo "	<select class='formfld' name='wait_mod'>\n";
-		echo "	<option value=''></option>\n";
-		if ($wait_mod == "true") {
-			echo "	<option value='true' selected='selected'>".$text['label-true']."</option>\n";
+		if ($input_toggle_style_switch) {
+			echo "	<span class='switch'>\n";
 		}
-		else {
-			echo "	<option value='true'>".$text['label-true']."</option>\n";
+		echo "		<select class='formfld' id='wait_mod' name='wait_mod'>\n";
+		echo "			<option value='true' ".($wait_mod == true ? "selected='selected'" : null).">".$text['option-true']."</option>\n";
+		echo "			<option value='false' ".($wait_mod == false ? "selected='selected'" : null).">".$text['option-false']."</option>\n";
+		echo "		</select>\n";
+		if ($input_toggle_style_switch) {
+			echo "		<span class='slider'></span>\n";
+			echo "	</span>\n";
 		}
-		if ($wait_mod == "false") {
-			echo "	<option value='false' selected='selected'>".$text['label-false']."</option>\n";
-		}
-		else {
-			echo "	<option value='false'>".$text['label-false']."</option>\n";
-		}
-		echo "	</select>\n";
 		echo "<br />\n";
 		echo "</td>\n";
 		echo "</tr>\n";
@@ -784,21 +762,17 @@ if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
 		echo "<tr>\n";
 		echo "<td class='vncell' valign='top' align='left' nowrap='nowrap'>".$text['label-moderator_endconf']."</td>\n";
 		echo "<td class='vtable' align='left'>\n";
-		echo "	<select class='formfld' name='moderator_endconf'>\n";
-		echo "	<option value=''></option>\n";
-		if ($moderator_endconf == "true") {
-			echo "	<option value='true' selected='selected'>".$text['label-true']."</option>\n";
+		if ($input_toggle_style_switch) {
+			echo "	<span class='switch'>\n";
 		}
-		else {
-			echo "	<option value='true'>".$text['label-true']."</option>\n";
+		echo "		<select class='formfld' id='moderator_endconf' name='moderator_endconf'>\n";
+		echo "			<option value='true' ".($moderator_endconf == true ? "selected='selected'" : null).">".$text['option-true']."</option>\n";
+		echo "			<option value='false' ".($moderator_endconf == false ? "selected='selected'" : null).">".$text['option-false']."</option>\n";
+		echo "		</select>\n";
+		if ($input_toggle_style_switch) {
+			echo "		<span class='slider'></span>\n";
+			echo "	</span>\n";
 		}
-		if ($moderator_endconf == "false") {
-			echo "	<option value='false' selected='selected'>".$text['label-false']."</option>\n";
-		}
-		else {
-			echo "	<option value='false'>".$text['label-false']."</option>\n";
-		}
-		echo "	</select>\n";
 		echo "<br />\n";
 		echo "</td>\n";
 		echo "</tr>\n";
@@ -808,21 +782,17 @@ if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
 		echo "<tr>\n";
 		echo "<td class='vncell' valign='top' align='left' nowrap='nowrap'>".$text['label-announce_name']."</td>\n";
 		echo "<td class='vtable' align='left'>\n";
-		echo "	<select class='formfld' name='announce_name'>\n";
-		echo "	<option value=''></option>\n";
-		if ($announce_name == "true") {
-			echo "	<option value='true' selected='selected'>".$text['label-true']."</option>\n";
+		if ($input_toggle_style_switch) {
+			echo "	<span class='switch'>\n";
 		}
-		else {
-			echo "	<option value='true'>".$text['label-true']."</option>\n";
+		echo "		<select class='formfld' id='announce_name' name='announce_name'>\n";
+		echo "			<option value='true' ".($announce_name == true ? "selected='selected'" : null).">".$text['option-true']."</option>\n";
+		echo "			<option value='false' ".($announce_name == false ? "selected='selected'" : null).">".$text['option-false']."</option>\n";
+		echo "		</select>\n";
+		if ($input_toggle_style_switch) {
+			echo "		<span class='slider'></span>\n";
+			echo "	</span>\n";
 		}
-		if ($announce_name == "false") {
-			echo "	<option value='false' selected='selected'>".$text['label-false']."</option>\n";
-		}
-		else {
-			echo "	<option value='false'>".$text['label-false']."</option>\n";
-		}
-		echo "	</select>\n";
 		echo "<br />\n";
 		echo "</td>\n";
 		echo "</tr>\n";
@@ -832,21 +802,17 @@ if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
 		echo "<tr>\n";
 		echo "<td class='vncell' valign='top' align='left' nowrap='nowrap'>".$text['label-announce_count']."</td>\n";
 		echo "<td class='vtable' align='left'>\n";
-		echo "	<select class='formfld' name='announce_count'>\n";
-		echo "	<option value=''></option>\n";
-		if ($announce_count == "true") {
-			echo "	<option value='true' selected='selected'>".$text['label-true']."</option>\n";
+		if ($input_toggle_style_switch) {
+			echo "	<span class='switch'>\n";
 		}
-		else {
-			echo "	<option value='true'>".$text['label-true']."</option>\n";
+		echo "		<select class='formfld' id='announce_count' name='announce_count'>\n";
+		echo "			<option value='true' ".($announce_count == true ? "selected='selected'" : null).">".$text['option-true']."</option>\n";
+		echo "			<option value='false' ".($announce_count == false ? "selected='selected'" : null).">".$text['option-false']."</option>\n";
+		echo "		</select>\n";
+		if ($input_toggle_style_switch) {
+			echo "		<span class='slider'></span>\n";
+			echo "	</span>\n";
 		}
-		if ($announce_count == "false") {
-			echo "	<option value='false' selected='selected'>".$text['label-false']."</option>\n";
-		}
-		else {
-			echo "	<option value='false'>".$text['label-false']."</option>\n";
-		}
-		echo "	</select>\n";
 		echo "<br />\n";
 		echo "</td>\n";
 		echo "</tr>\n";
@@ -856,21 +822,17 @@ if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
 		echo "<tr>\n";
 		echo "<td class='vncell' valign='top' align='left' nowrap='nowrap'>".$text['label-announce_recording']."</td>\n";
 		echo "<td class='vtable' align='left'>\n";
-		echo "	<select class='formfld' name='announce_recording'>\n";
-		echo "	<option value=''></option>\n";
-		if ($announce_recording == "true") {
-			echo "	<option value='true' selected='selected'>".$text['label-true']."</option>\n";
+		if ($input_toggle_style_switch) {
+			echo "	<span class='switch'>\n";
 		}
-		else {
-			echo "	<option value='true'>".$text['label-true']."</option>\n";
+		echo "		<select class='formfld' id='announce_recording' name='announce_recording'>\n";
+		echo "			<option value='true' ".($announce_recording == true ? "selected='selected'" : null).">".$text['option-true']."</option>\n";
+		echo "			<option value='false' ".($announce_recording == false ? "selected='selected'" : null).">".$text['option-false']."</option>\n";
+		echo "		</select>\n";
+		if ($input_toggle_style_switch) {
+			echo "		<span class='slider'></span>\n";
+			echo "	</span>\n";
 		}
-		if ($announce_recording == "false") {
-			echo "	<option value='false' selected='selected'>".$text['label-false']."</option>\n";
-		}
-		else {
-			echo "	<option value='false'>".$text['label-false']."</option>\n";
-		}
-		echo "	</select>\n";
 		echo "<br />\n";
 		echo "</td>\n";
 		echo "</tr>\n";
@@ -891,23 +853,45 @@ if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
 		echo "<tr>\n";
 		echo "<td class='vncell' valign='top' align='left' nowrap='nowrap'>".$text['label-mute']."</td>\n";
 		echo "<td class='vtable' align='left'>\n";
-		echo "	<select class='formfld' name='mute'>\n";
-		echo "	<option value=''></option>\n";
-		if ($mute == "true") {
-			echo "	<option value='true' selected='selected'>".$text['label-true']."</option>\n";
+		if ($input_toggle_style_switch) {
+			echo "	<span class='switch'>\n";
 		}
-		else {
-			echo "	<option value='true'>".$text['label-true']."</option>\n";
+		echo "		<select class='formfld' id='mute' name='mute'>\n";
+		echo "			<option value='true' ".($mute == true ? "selected='selected'" : null).">".$text['option-true']."</option>\n";
+		echo "			<option value='false' ".($mute == false ? "selected='selected'" : null).">".$text['option-false']."</option>\n";
+		echo "		</select>\n";
+		if ($input_toggle_style_switch) {
+			echo "		<span class='slider'></span>\n";
+			echo "	</span>\n";
 		}
-		if ($mute == "false") {
-			echo "	<option value='false' selected='selected'>".$text['label-false']."</option>\n";
-		}
-		else {
-			echo "	<option value='false'>".$text['label-false']."</option>\n";
-		}
-		echo "	</select>\n";
 		echo "<br />\n";
 		echo "\n";
+		echo "</td>\n";
+		echo "</tr>\n";
+	}
+
+	if (permission_exists('conference_room_email_address')) {
+		echo "<tr>\n";
+		echo "<td class='vncell' valign='top' align='left' nowrap='nowrap'>\n";
+		echo "	".$text['label-email_address']."\n";
+		echo "</td>\n";
+		echo "<td class='vtable' align='left'>\n";
+		echo "	<input class='formfld' type='text' name='email_address' maxlength='255' value=\"".escape($email_address)."\">\n";
+		echo "<br />\n";
+		echo "".$text['description-email_address']."\n";
+		echo "</td>\n";
+		echo "</tr>\n";
+	}
+
+	if (permission_exists('conference_room_account_code')) {
+		echo "<tr>\n";
+		echo "<td class='vncell' valign='top' align='left' nowrap='nowrap'>\n";
+		echo "	".$text['label-account_code']."\n";
+		echo "</td>\n";
+		echo "<td class='vtable' align='left'>\n";
+		echo "	<input class='formfld' type='text' name='account_code' maxlength='255' value=\"".escape($account_code)."\">\n";
+		echo "<br />\n";
+		echo "".$text['description-account_code']."\n";
 		echo "</td>\n";
 		echo "</tr>\n";
 	}
@@ -916,21 +900,17 @@ if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
 		echo "<tr>\n";
 		echo "<td class='vncell' valign='top' align='left' nowrap='nowrap'>".$text['label-enabled']."</td>\n";
 		echo "<td class='vtable' align='left'>\n";
-		echo "	<select class='formfld' name='enabled'>\n";
-		echo "	<option value=''></option>\n";
-		if ($enabled == "true") {
-			echo "	<option value='true' selected='selected'>".$text['label-true']."</option>\n";
+		if ($input_toggle_style_switch) {
+			echo "	<span class='switch'>\n";
 		}
-		else {
-			echo "	<option value='true'>".$text['label-true']."</option>\n";
+		echo "		<select class='formfld' id='enabled' name='enabled'>\n";
+		echo "			<option value='true' ".($enabled == true ? "selected='selected'" : null).">".$text['option-true']."</option>\n";
+		echo "			<option value='false' ".($enabled == false ? "selected='selected'" : null).">".$text['option-false']."</option>\n";
+		echo "		</select>\n";
+		if ($input_toggle_style_switch) {
+			echo "		<span class='slider'></span>\n";
+			echo "	</span>\n";
 		}
-		if ($enabled == "false") {
-			echo "	<option value='false' selected='selected'>".$text['label-false']."</option>\n";
-		}
-		else {
-			echo "	<option value='false'>".$text['label-false']."</option>\n";
-		}
-		echo "	</select>\n";
 		echo "<br />\n";
 		echo "\n";
 		echo "</td>\n";
@@ -941,21 +921,17 @@ if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
 		echo "<tr>\n";
 		echo "<td class='vncell' valign='top' align='left' nowrap='nowrap'>".$text['label-sounds']."</td>\n";
 		echo "<td class='vtable' align='left'>\n";
-		echo "	<select class='formfld' name='sounds'>\n";
-		echo "	<option value=''></option>\n";
-		if ($sounds == "true") {
-			echo "	<option value='true' selected='selected'>".$text['label-true']."</option>\n";
+		if ($input_toggle_style_switch) {
+			echo "	<span class='switch'>\n";
 		}
-		else {
-			echo "	<option value='true'>".$text['label-true']."</option>\n";
+		echo "		<select class='formfld' id='sounds' name='sounds'>\n";
+		echo "			<option value='true' ".($sounds == true ? "selected='selected'" : null).">".$text['option-true']."</option>\n";
+		echo "			<option value='false' ".($sounds == false ? "selected='selected'" : null).">".$text['option-false']."</option>\n";
+		echo "		</select>\n";
+		if ($input_toggle_style_switch) {
+			echo "		<span class='slider'></span>\n";
+			echo "	</span>\n";
 		}
-		if ($sounds == "false") {
-			echo "	<option value='false' selected='selected'>".$text['label-false']."</option>\n";
-		}
-		else {
-			echo "	<option value='false'>".$text['label-false']."</option>\n";
-		}
-		echo "	</select>\n";
 		echo "<br />\n";
 		echo "\n";
 		echo "</td>\n";
@@ -972,11 +948,10 @@ if (count($_POST) > 0 && strlen($_POST["persistformvar"]) == 0) {
 	echo "</tr>\n";
 
 	echo "</table>\n";
+	echo "</div>\n";
 	echo "<br><br>\n";
 
 	if ($action == "update") {
-		echo "<input type='hidden' name='conference_center_uuid' value='".escape($conference_center_uuid)."'>\n";
-		echo "<input type='hidden' name='meeting_uuid' value='".escape($meeting_uuid)."'>\n";
 		echo "<input type='hidden' name='conference_room_uuid' value='".escape($conference_room_uuid)."'>\n";
 	}
 	echo "<input type='hidden' name='".$token['name']."' value='".$token['hash']."'>\n";

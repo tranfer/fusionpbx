@@ -23,16 +23,15 @@
 	Contributor(s):
 	Mark J Crane <markjcrane@fusionpbx.com>
 */
-include "root.php";
-require_once "resources/require.php";
-require_once "resources/check_auth.php";
-if (permission_exists('active_queue_view')) {
-	//access granted
-}
-else {
-	echo "access denied";
-	exit;
-}
+//includes files
+	require_once dirname(__DIR__, 2) . "/resources/require.php";
+	require_once "resources/check_auth.php";
+
+//check permissions
+	if (!permission_exists('active_queue_view')) {
+		echo "access denied";
+		exit;
+	}
 
 //add multi-lingual support
 	$language = new text;
@@ -71,9 +70,17 @@ function loadXmlHttp(url, id) {
 }
 
 loadXmlHttp.prototype.stateChanged=function () {
-if (this.xmlHttp.readyState == 4 && (this.xmlHttp.status == 200 || !/^http/.test(window.location.href)))
-	//this.el.innerHTML = this.xmlHttp.responseText;
-	document.getElementById('ajax_reponse').innerHTML = this.xmlHttp.responseText;
+	var url = new URL(this.xmlHttp.responseURL);
+	if (/login\.php$/.test(url.pathname)) {
+		// You are logged out. Stop refresh!
+		url.searchParams.set('path', '<?php echo $_SERVER['REQUEST_URI']; ?>');
+		window.location.href = url.href;
+		return;
+	}
+
+	if (this.xmlHttp.readyState == 4 && (this.xmlHttp.status == 200 || !/^http/.test(window.location.href)))
+		//this.el.innerHTML = this.xmlHttp.responseText;
+		document.getElementById('ajax_reponse').innerHTML = this.xmlHttp.responseText;
 }
 
 var requestTime = function() {
